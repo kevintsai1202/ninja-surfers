@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+test-results/
+playwright-report/
+e2e/screenshots/
+logs/
+
+# muse image MCP 的原始輸出（整理後的參考圖在 docs/concept/）
+generated-images/
