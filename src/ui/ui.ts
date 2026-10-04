@@ -198,6 +198,12 @@ export class Ui {
     this.root.appendChild(this.loading);
   }
 
+  /** 更新載入畫面的文字（進度） */
+  setLoadingText(text: string): void {
+    const p = this.loading.querySelector('p');
+    if (p) p.textContent = text;
+  }
+
   /** 載入完成：拿掉載入畫面 */
   ready(): void {
     this.loading.remove();

@@ -96,9 +96,9 @@ test('音效：開局後量得到聲音（AnalyserNode RMS > 0）', async ({ pag
   await page.goto('./?seed=5&intro=0');
   await page.waitForFunction(() => (window as unknown as { __gameReady?: boolean }).__gameReady === true, null, { timeout: 300_000 });
   await page.locator('.title-screen .start').click();
-  // 量 3 秒內的最大音量
+  // 最多量 15 秒，量到聲音就停（軟體渲染開局的前幾幀很慢，音樂排程可能晚一點才開始）
   let peak = 0;
-  for (let i = 0; i < 15; i++) {
+  for (let i = 0; i < 75 && peak <= 0.001; i++) {
     await page.waitForTimeout(200);
     const lv = await page.evaluate(() => (window as unknown as { __game: { audioLevel(): number } }).__game.audioLevel());
     peak = Math.max(peak, lv);

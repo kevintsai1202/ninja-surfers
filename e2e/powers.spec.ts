@@ -22,7 +22,8 @@ async function startRun(page: Page): Promise<string[]> {
   page.on('pageerror', (e) => errors.push(e.message));
   // 擋掉 Vite 熱重載的 WebSocket（對 dev server 跑時，有人改檔不會整頁重載）
   await page.routeWebSocket(/.*/, () => {});
-  await page.goto('./?mute=1&seed=33&auto=1&intro=0');
+  // dtcap：軟體渲染一幀很久，放寬每幀推進的遊戲時間
+  await page.goto('./?mute=1&seed=33&auto=1&intro=0&dtcap=0.15');
   await page.waitForFunction(() => (window as unknown as { __gameReady?: boolean }).__gameReady === true, null, { timeout: 300_000 });
   await page.locator('.title-screen .start').click();
   await page.waitForFunction(() => (window as unknown as { __game: Hook }).__game.mode === 'run', null, { timeout: 120_000 });

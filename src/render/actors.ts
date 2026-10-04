@@ -78,6 +78,27 @@ export class Actors {
     }
   }
 
+  /**
+   * 預熱：先建好之後才會出現的角色（追捕者、忍犬、巨蛤蟆、影分身、卷軸滑板、光環），並預先編譯它們的 shader。
+   * 在載入畫面期間呼叫；不然開局（追捕者第一次出現）與第一次撿到道具時會卡頓。
+   */
+  warmup(renderer: THREE.WebGLRenderer, camera: THREE.Camera): void {
+    const extra: THREE.Object3D[] = [
+      this.getChaser('iruka').rig.root,
+      this.getChaser('anbu').rig.root,
+      this.getDog().root,
+      this.getToad().root,
+      ...this.getClones().map((c) => c.rig.root),
+      this.board,
+      this.chakraGlow,
+      ...this.magnetRings,
+    ];
+    const prev = extra.map((o) => o.visible);
+    for (const o of extra) o.visible = true;
+    renderer.compile(this.stage.scene, camera);
+    extra.forEach((o, i) => (o.visible = prev[i]));
+  }
+
   /** 新的一局：清掉替身木頭、重置追捕者 */
   reset(): void {
     for (const l of this.logs) l.removeFromParent();

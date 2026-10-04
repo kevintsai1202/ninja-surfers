@@ -12,7 +12,8 @@ import { Autopilot } from './sim/autopilot';
 import { loadSave, writeSave, applyRunResult, type SaveData } from './sim/save';
 import { speedAt } from './sim/speed';
 import { biomeAt } from './sim/biome';
-import type { Action, PowerKind, ScrollReward, SimEvent } from './sim/types';
+import type { Action, Lane, PowerKind, ScrollReward, SimEvent } from './sim/types';
+import { LANE_WIDTH } from './config';
 
 /**
  * 遊戲主流程：標題（背景是自動駕駛的展示跑）→ 開場 → 奔跑 → 倒下 → 結算（兵糧丸復活）。
@@ -107,9 +108,20 @@ class Game {
     });
     this.exposeDebug();
     this.toTitle();
-    // 其他場景在標題畫面時背景建立（起跑的場景已經建好）
-    this.world.preloadInBackground((['village', 'forest', 'valley'] as const).filter((b) => b !== biomeAt(this.startZ)));
     requestAnimationFrame((t) => this.loop(t));
+  }
+
+  /**
+   * 載入其他場景（起跑的場景在建構時已經建好）。載入畫面期間呼叫，避免遊玩中途卡頓。
+   * @param onProgress 進度回呼
+   */
+  preload(onProgress: (done: number, total: number) => void): Promise<void> {
+    const others = (['village', 'forest', 'valley'] as const).filter((b) => b !== biomeAt(this.startZ));
+    return this.world.preload([...others], onProgress).then(() => {
+      // 全部場景與角色預先編譯 shader，開局與換場景時才不會卡頓
+      this.actors.warmup(this.stage.renderer, this.stage.camera);
+      this.world.warmup(this.stage.renderer, this.stage.camera);
+    });
   }
 
   /** 介面按鈕的回呼 */
@@ -397,8 +409,12 @@ class Game {
         return g.save;
       },
       start: () => g.start(),
-      /** 在玩家前方 dz 公尺放一個道具 */
-      grant: (kind: PowerKind, dz = 6) => addPickup(g.run, kind, g.run.player.lane, g.run.player.z + dz, 1.1),
+      /** 在玩家前方 dz 公尺放一個道具（車道取主角目前 x 最近的那條、高度跟著主角，換線或跳躍中也撿得到） */
+      grant: (kind: PowerKind, dz = 6) => {
+        const p = g.run.player;
+        const lane = Math.max(-1, Math.min(1, Math.round(p.x / LANE_WIDTH))) as Lane;
+        return addPickup(g.run, kind, lane, p.z + dz, p.y + 1.0);
+      },
       /** 在玩家前方放一個擋牆（測試倒下流程） */
       crash: () => addObstacle(g.run, { kind: 'block', lane: g.run.player.lane, z: g.run.player.z + 3 }),
       revive: () => g.tryRevive(),
@@ -419,8 +435,11 @@ export function startGame(params: URLSearchParams): void {
   let game: Game | null = null;
   const ui = new Ui(document.body, Game.handlers(() => game));
   requestAnimationFrame(() =>
-    setTimeout(() => {
-      game = new Game(params, ui);
+    setTimeout(async () => {
+      const g = new Game(params, ui);
+      game = g;
+      // 其他兩個場景也在載入畫面期間建好（每個之間讓出主執行緒，載入動畫會動）
+      await g.preload((done, total) => ui.setLoadingText(`場景準備中…… ${done}／${total}`));
       ui.ready();
       (window as unknown as { __gameReady: boolean }).__gameReady = true;
     }, 30),

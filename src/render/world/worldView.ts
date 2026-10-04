@@ -1,12 +1,12 @@
 import * as THREE from 'three';
-import { CHUNK_LEN, BIOME_LEN, VIEW_AHEAD, VIEW_BEHIND, LANE_WIDTH } from '../../config';
+import { CHUNK_LEN, BIOME_LEN, VIEW_AHEAD, VIEW_BEHIND, LANE_WIDTH, RAMP } from '../../config';
 import { BIOME_FACTORIES } from '../biomes';
 import { biomeAt, biomeBlend } from '../../sim/biome';
 import { CoinField } from './coins';
 import { PickupField } from './pickups';
 import type { Stage } from '../stage';
 import type { BiomeKit } from '../biomes/types';
-import type { BiomeId, Obstacle } from '../../sim/types';
+import type { BiomeId, Obstacle, ObstacleKind } from '../../sim/types';
 import type { RunState } from '../../sim/run';
 
 /**
@@ -92,18 +92,26 @@ export class WorldView {
   }
 
   /**
-   * 在背景依序建立其他場景模組（每個之間讓出主執行緒，標題畫面才不會一直卡住）。
-   * @param ids 要預先建立的場景
+   * 依序建立其他場景模組：每建一個就讓出主執行緒一次（載入畫面的動畫才會動），全部建好時 resolve。
+   * 在載入畫面期間呼叫：遊玩中途才建場景會卡住好幾秒（音樂排程、畫面都會停）。
+   * @param ids 要建立的場景
+   * @param onProgress 每建好一個的回呼（已完成數、總數）
    */
-  preloadInBackground(ids: BiomeId[]): void {
-    const next = (i: number) => {
-      if (i >= ids.length) return;
-      setTimeout(() => {
-        this.kit(ids[i]);
-        next(i + 1);
-      }, 120);
-    };
-    next(0);
+  preload(ids: BiomeId[], onProgress?: (done: number, total: number) => void): Promise<void> {
+    return new Promise((resolve) => {
+      const next = (i: number) => {
+        if (i >= ids.length) {
+          resolve();
+          return;
+        }
+        setTimeout(() => {
+          this.kit(ids[i]);
+          onProgress?.(i + 1, ids.length);
+          next(i + 1);
+        }, 16);
+      };
+      next(0);
+    });
   }
 
   /** 新的一局：清掉所有障礙與入口地標 */
@@ -174,14 +182,7 @@ export class WorldView {
         const moving = o.speed > 0;
         const variant = o.variant % 4;
         const key = `${o.biome}|${o.kind}|${o.length}|${variant}|${moving}`;
-        v = fromPool(this.obstaclePool, key, () => {
-          let t = this.obstacleTemplates.get(key);
-          if (!t) {
-            t = this.kit(o.biome).buildObstacle({ kind: o.kind, length: o.length, moving, variant });
-            this.obstacleTemplates.set(key, t);
-          }
-          return t.clone();
-        });
+        v = fromPool(this.obstaclePool, key, () => this.obstacleTemplate(o.biome, o.kind, o.length, variant, moving).clone());
         this.stage.world.add(v);
         this.obstacleViews.set(o.id, v);
       }
@@ -192,6 +193,48 @@ export class WorldView {
       toPool(this.obstaclePool, v);
       this.obstacleViews.delete(id);
     }
+  }
+
+  /** 取得（必要時建立並快取）障礙外觀模板 */
+  private obstacleTemplate(biome: BiomeId, kind: ObstacleKind, length: number, variant: number, moving: boolean): THREE.Object3D {
+    const key = `${biome}|${kind}|${length}|${variant}|${moving}`;
+    let t = this.obstacleTemplates.get(key);
+    if (!t) {
+      t = this.kit(biome).buildObstacle({ kind, length, moving, variant });
+      this.obstacleTemplates.set(key, t);
+    }
+    return t;
+  }
+
+  /**
+   * 預熱：把每個已建立場景的一段場景、各種障礙、入口地標、遠景暫時放進場景，預先編譯 shader 後再拿掉。
+   * 在載入畫面期間呼叫；不然第一次進到某個場景、第一次看到某種障礙時會卡頓。
+   */
+  warmup(renderer: THREE.WebGLRenderer, camera: THREE.Camera): void {
+    const temp = new THREE.Group();
+    const kinds: [ObstacleKind, number, boolean][] = [
+      ['hurdle', 0.4, false],
+      ['highBar', 0.4, false],
+      ['block', 1.2, false],
+      ['ramp', RAMP.length, false],
+      ['train', 20, false],
+      ['train', 20, true],
+    ];
+    for (const id of Object.keys(this.kitCache) as BiomeId[]) {
+      const kit = this.kit(id);
+      const chunk = this.chunkTemplates.get(`${id}|0`);
+      if (chunk) temp.add(chunk.clone());
+      for (const [kind, len, moving] of kinds) temp.add(this.obstacleTemplate(id, kind, len, 0, moving).clone());
+      temp.add(kit.buildGate());
+    }
+    // 放在鏡頭前方的視野內（compile 只處理場景裡可見的物件）
+    temp.position.z = -this.stage.world.position.z - 20;
+    this.stage.world.add(temp);
+    const hidden = Object.values(this.backdrops).filter((b): b is THREE.Object3D => !!b && !b.visible);
+    for (const b of hidden) b.visible = true;
+    renderer.compile(this.stage.scene, camera);
+    for (const b of hidden) b.visible = false;
+    temp.removeFromParent();
   }
 
   /** 場景交界的入口地標（屬於要進入的那個場景） */
