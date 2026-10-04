@@ -168,6 +168,7 @@ export class Ui {
     this.howto = el('section', 'screen howto');
     this.howto.hidden = true;
     this.howto.innerHTML = `
+      <button class="x" aria-label="關閉">✕</button>
       <h2>操作說明</h2>
       <table>
         <tr><th>換線</th><td><span class="kb">← → ／ A D</span><span class="tc">左右滑</span></td></tr>
@@ -194,6 +195,7 @@ export class Ui {
       <p>正面撞上障礙就會倒下；側面擦撞會踉蹌，追捕者會追上來，短時間內再踉蹌一次就被抓。瞬身術：0.25 秒內往同一個方向換線兩次，會瞬間移到最遠的安全車道（冷卻 1.2 秒）。</p>
       <button class="big close">知道了</button>`;
     this.howto.querySelector('.close')!.addEventListener('click', () => this.showHowto(false));
+    this.howto.querySelector('.x')!.addEventListener('click', () => this.showHowto(false));
     this.root.appendChild(this.howto);
 
     // ── 暫停 ──

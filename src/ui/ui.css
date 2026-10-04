@@ -535,6 +535,43 @@
   margin: 0;
   font-size: 15px;
 }
+/*
+ * 操作說明比手機畫面長：整頁禁止捲動（html、body 的 touch-action: none），
+ * 所以說明頁自己當捲動區，可以上下滑；右上角另有 ✕，不用捲動也能關閉。
+ */
+.howto {
+  justify-content: flex-start;
+  overflow-y: auto;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: max(20px, env(safe-area-inset-bottom));
+}
+.howto > * {
+  flex-shrink: 0;
+}
+/* 放得下時上下置中；放不下時 auto 邊距變成 0，從頂端開始排，不會被裁掉（不用 safe center，舊版 iOS 不支援） */
+.howto > h2 {
+  margin-top: auto;
+}
+.howto > .close {
+  margin-bottom: auto;
+}
+.howto .x {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(20, 22, 40, 0.8);
+  color: #fff;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.55);
+  z-index: 1;
+}
 .quote {
   margin: 0;
   font-size: clamp(18px, 3.4vw, 24px);

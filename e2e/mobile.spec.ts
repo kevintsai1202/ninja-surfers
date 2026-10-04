@@ -52,6 +52,41 @@ test('手機：觸控點「開始」後有聲音（需要手勢的自動播放�
   expect(peak).toBeGreaterThan(0.001);
 });
 
+test.describe('iPhone 尺寸（390×664，Safari 有網址列時的可視範圍）', () => {
+  test.use({ viewport: { width: 390, height: 664 } });
+
+  /** 元素整個在可視範圍內 */
+  async function inViewport(page: import('@playwright/test').Page, selector: string): Promise<boolean> {
+    const box = await page.locator(selector).boundingBox();
+    const vp = page.viewportSize()!;
+    return !!box && box.y >= 0 && box.x >= 0 && box.y + box.height <= vp.height && box.x + box.width <= vp.width;
+  }
+
+  test('手機：操作說明可以用右上角 ✕ 關閉，也可以捲到最下面按「知道了」', async ({ page }) => {
+    const errors = await open(page, 'seed=5&intro=0&mute=1&gen=0&dtcap=0.15');
+    const howto = page.locator('.howto');
+    // 右上角 ✕：不用捲動就按得到
+    await page.locator('.title-screen .howto-btn').tap();
+    await expect(howto).toBeVisible();
+    await page.screenshot({ path: 'e2e/screenshots/mobile-howto.png', timeout: 240_000 });
+    expect(await inViewport(page, '.howto .x')).toBe(true);
+    await page.locator('.howto .x').tap();
+    await expect(howto).toBeHidden();
+    // 內容比畫面長時可以捲動：捲到最下面，「知道了」要在畫面內
+    await page.locator('.title-screen .howto-btn').tap();
+    await expect(howto).toBeVisible();
+    expect(await howto.evaluate((el) => getComputedStyle(el).overflowY)).toBe('auto');
+    // 記錄內容高與可視高（內容比畫面長，就是「知道了」原本按不到的原因）
+    const { sh, ch } = await howto.evaluate((el) => ({ sh: el.scrollHeight, ch: el.clientHeight }));
+    console.log(`操作說明：內容高 ${sh}px，可視高 ${ch}px`);
+    await howto.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+    await expect.poll(() => inViewport(page, '.howto .close')).toBe(true);
+    await page.locator('.howto .close').tap();
+    await expect(howto).toBeHidden();
+    expect(errors, errors.join('\n')).toEqual([]);
+  });
+});
+
 test('手機：點一下畫面擲手裏劍、點「爆」按鈕擲起爆符苦無', async ({ page }) => {
   const errors = await open(page, 'seed=5&intro=0&mute=1&gen=0&dtcap=0.15');
   await page.locator('.title-screen .start').tap();

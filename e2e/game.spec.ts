@@ -60,10 +60,11 @@ test('開始、鍵盤換線、倒下、結算並寫入存檔', async ({ page }) 
   await page.waitForFunction(() => (window as unknown as { __game: GameHook }).__game.mode === 'over', null, { timeout: 240_000 });
   await expect(page.locator('.over-screen')).toBeVisible();
   await page.screenshot({ path: 'e2e/screenshots/game-over.png', timeout: 240_000 });
-  // 有兵糧丸時會先問要不要復活：按「不用了」
+  // 有兵糧丸時會先問要不要復活：按「不用了」。
+  // 復活倒數結束也會自動結算，按鈕可能在點到之前就消失（線上網站較慢時發生過），兩條路都會到結算畫面
   const skip = page.locator('.over-screen .skip');
-  if (await skip.isVisible()) await skip.click();
-  await expect(page.locator('.over-screen .retry')).toBeVisible();
+  if (await skip.isVisible()) await skip.click({ timeout: 10_000 }).catch(() => {});
+  await expect(page.locator('.over-screen .retry')).toBeVisible({ timeout: 120_000 });
   const save = await page.evaluate(() => (window as unknown as { __game: GameHook }).__game.save);
   expect(save.runs).toBeGreaterThanOrEqual(1);
   const stored = await page.evaluate(() => localStorage.getItem('ninja-surfers-save'));
