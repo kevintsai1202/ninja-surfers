@@ -75,6 +75,8 @@ test('選角：鎖住的角色看得到但不能開始；存檔跑過 1,200 m �
 });
 
 test('chars=all：每個角色騎自己的通靈獸、用自己的招牌忍術（截圖），而且不寫進存檔', async ({ page }) => {
+  // 每局會用掉一個通靈卷軸（預設存檔只有 2 個），四個角色都要騎：先給 9 個
+  await page.addInitScript(() => localStorage.setItem('ninja-surfers-save', JSON.stringify({ boards: 9 })));
   const errors = await open(page, 'mute=1&seed=7&intro=0&gen=0&dtcap=0.15&chars=all');
   for (const [i, id] of ['naruto', 'sasuke', 'sakura', 'kakashi'].entries()) {
     if (i > 0) await page.locator('.title-screen .char-next').click();

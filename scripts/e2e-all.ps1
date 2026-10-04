@@ -1,6 +1,6 @@
 # 全套 e2e（PowerShell 7）：先建置再對 vite preview 跑（沒有熱重載，截圖穩定），結果寫到 logs/e2e-all.log。
 # 用法：pwsh scripts/e2e-all.ps1
-# 內容：跑姿截圖、木葉村場景預覽、遊戲流程（含三場景遊玩截圖與音效）、道具畫面、第二版新招式（moves）、手機模擬（mobile），再補森林與峽谷的場景預覽。
+# 內容：跑姿截圖、木葉村場景預覽、遊戲流程（含三場景遊玩截圖與音效）、道具畫面、第二版新招式（moves）、手機模擬（mobile）、多角色（chars），再補森林與峽谷的場景預覽。
 $ErrorActionPreference = 'Continue'
 Set-Location (Split-Path $PSScriptRoot -Parent)
 New-Item -ItemType Directory -Force logs | Out-Null
