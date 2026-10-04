@@ -12,7 +12,7 @@ import { createStage } from './stage';
  * 用遊戲同一套舞台（環境光、陰影、tone mapping），截圖才會和遊戲裡一致。
  * 參數：
  * - model：ninja（預設）
- * - anim：run／jump／roll／stumble／fall／surf／ride／idle／grab／paint
+ * - anim：run／jump／roll／stumble／fall／surf／ride／idle／grab／paint／rasengan（螺旋丸跑，不含球）／climb（查克拉攀牆）
  * - phase：0..1，指定時凍結在該相位（截圖用）
  * - view：side（側面，預設）／back（背後）／front（正面）／three（斜前方）／game（遊戲中的追尾鏡頭）／face（臉部特寫）
  * - speed：跑速（m/s），影響步頻與布條飄動

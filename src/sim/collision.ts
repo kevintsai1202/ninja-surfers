@@ -118,6 +118,7 @@ export function groundUnder(b: BodyState, obstacles: readonly Obstacle[]): numbe
   const minOverlap = PLAYER.width * 0.3;
   let g = 0;
   for (const o of obstacles) {
+    if (o.removed) continue;
     const fp = footprint(o);
     if (b.z < fp.z0 - 1 || b.z > fp.z1 + 1) continue;
     if (Math.min(box.x1, fp.x1) - Math.max(box.x0, fp.x0) < minOverlap) continue;
@@ -148,6 +149,7 @@ export function detectHit(prev: BodyState, cur: BodyState, obstacles: readonly O
   const sz1 = Math.max(was.z1, now.z1);
   let side: Hit | null = null;
   for (const o of obstacles) {
+    if (o.removed) continue;
     const fp = footprint(o);
     const oz0 = Math.min(o.z, o.prevZ);
     const oz1 = Math.max(o.z, o.prevZ) + o.length;
@@ -178,6 +180,7 @@ export function detectHit(prev: BodyState, cur: BodyState, obstacles: readonly O
 export function insideSolid(cur: BodyState, obstacles: readonly Obstacle[]): boolean {
   const box = bodyBox(cur);
   for (const o of obstacles) {
+    if (o.removed) continue;
     const fp = footprint(o);
     if (!overlap(box.z0, box.z1, fp.z0, fp.z1)) continue;
     if (!overlap(box.x0, box.x1, fp.x0, fp.x1, 0.02)) continue;

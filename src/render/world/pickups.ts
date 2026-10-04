@@ -4,7 +4,7 @@ import { badgeTexture, glowTexture } from '../textures';
 import type { Pickup, PowerKind } from '../../sim/types';
 
 /**
- * 場上的道具：漂浮旋轉的漢字徽章（蛙／查／引／影／丸）與秘傳卷軸，後面有一圈光暈。
+ * 場上的道具：漂浮旋轉的漢字徽章（蛙／查／引／影／丸／劍／螺／爆／替）與秘傳卷軸，後面有一圈光暈。
  */
 
 /** 各道具的徽章漢字、顏色與名稱（HUD、橫幅共用） */
@@ -15,6 +15,11 @@ export const POWER_INFO: Record<PowerKind, { kanji: string; color: string; name:
   clones: { kanji: '影', color: '#f09a17', name: '多重影分身之術' },
   scroll: { kanji: '秘', color: '#b8282a', name: '秘傳卷軸' },
   pill: { kanji: '丸', color: '#3d9a4a', name: '兵糧丸' },
+  // 第二版新招式
+  shuriken: { kanji: '劍', color: '#4f6475', name: '手裏劍 +3' },
+  rasengan: { kanji: '螺', color: '#15b3d6', name: '螺旋丸' },
+  kunai: { kanji: '爆', color: '#c21d3c', name: '起爆符苦無' },
+  sub: { kanji: '替', color: '#8a5a2b', name: '替身木頭' },
 };
 
 /** 共用的光暈貼圖 */

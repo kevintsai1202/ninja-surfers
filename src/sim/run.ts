@@ -1,4 +1,4 @@
-import { PHYS, LANE_WIDTH } from '../config';
+import { PHYS, LANE_WIDTH, TRAIN, BLOCK, PLAYER } from '../config';
 import { createRng, type Rng } from './rng';
 import { speedAt } from './speed';
 import { biomeAt, chaserIdentityAt } from './biome';
@@ -25,18 +25,27 @@ import {
   TOAD_ALTITUDE,
   TOAD_HOP,
   TOAD_HOP_PERIOD,
+  SHURIKEN,
+  KUNAI,
+  RASENGAN,
+  FLICKER,
+  CLIMB_SPEED,
+  CLONE_BLOCKS,
+  SUB_SAFE_TIME,
   rollScroll,
 } from './powerups';
 import { createGen, ensureTrack, cleanupTrack, spawnToadCoins, type GenState } from './track';
 import type {
   Action,
   BiomeId,
+  BreakCause,
   Coin,
   Lane,
   Obstacle,
   ObstacleKind,
   Pickup,
   PowerKind,
+  Projectile,
   SimEvent,
   TimedPower,
 } from './types';
@@ -61,6 +70,10 @@ export interface RunOptions {
   pills?: number;
   /** 開場追捕者貼身的秒數（預設 3） */
   introSeconds?: number;
+  /** 開局的手裏劍數（預設 SHURIKEN.start） */
+  shuriken?: number;
+  /** 是否允許瞬身術（公平性測試關掉，維持原本「不能瞬移」的標準） */
+  flicker?: boolean;
 }
 
 /** 各能力的剩餘秒數（0 = 沒有） */
@@ -101,6 +114,24 @@ export interface RunState {
   obstacles: Obstacle[];
   coinList: Coin[];
   pickups: Pickup[];
+  /** 飛行中的手裏劍、起爆符苦無 */
+  projectiles: Projectile[];
+  /** 手裏劍數量 */
+  shuriken: number;
+  /** 起爆符苦無數量 */
+  kunai: number;
+  /** 替身木頭數量（0 或 1） */
+  subs: number;
+  /** 影分身還能擋幾次撞擊 */
+  clonesLeft: number;
+  /** 是否允許瞬身術 */
+  flickerEnabled: boolean;
+  /** 瞬身術冷卻剩餘秒數 */
+  flickerCooldown: number;
+  /** 上一次換線（判斷瞬身術：方向、時間、換線前的車道） */
+  lastLane: { dir: -1 | 1; time: number; fromLane: Lane } | null;
+  /** 查克拉攀牆中：攀的是哪個障礙、頂面高度 */
+  climb: { obstacleId: number; top: number } | null;
   nextId: number;
   gen: GenState;
 }
@@ -118,7 +149,7 @@ export function createRun(opts: RunOptions): RunState {
     deathCause: null,
     player: createPlayer(startZ),
     chaser: createChaser(opts.introSeconds ?? 3),
-    power: { toad: 0, chakra: 0, magnet: 0, clones: 0, board: 0, invincible: 0 },
+    power: { toad: 0, chakra: 0, magnet: 0, clones: 0, board: 0, rasengan: 0, invincible: 0 },
     toadTime: 0,
     landingGrace: false,
     boards: opts.boards ?? 0,
@@ -133,6 +164,15 @@ export function createRun(opts: RunOptions): RunState {
     obstacles: [],
     coinList: [],
     pickups: [],
+    projectiles: [],
+    shuriken: opts.shuriken ?? SHURIKEN.start,
+    kunai: 0,
+    subs: 0,
+    clonesLeft: 0,
+    flickerEnabled: opts.flicker ?? true,
+    flickerCooldown: 0,
+    lastLane: null,
+    climb: null,
     nextId: 1,
     gen: createGen(startZ),
   };
@@ -195,7 +235,12 @@ function applyAction(s: RunState, a: Action, ev: SimEvent[]): void {
     case 'left':
     case 'right': {
       const dir = a === 'left' ? -1 : 1;
-      if (requestLane(p, dir)) ev.push({ type: 'lane', dir });
+      if (tryFlicker(s, dir, ev)) break;
+      const from = p.lane;
+      if (requestLane(p, dir)) {
+        ev.push({ type: 'lane', dir });
+        s.lastLane = { dir, time: s.time, fromLane: from };
+      }
       break;
     }
     case 'jump':
@@ -213,29 +258,168 @@ function applyAction(s: RunState, a: Action, ev: SimEvent[]): void {
         ev.push({ type: 'boardOn' });
       }
       break;
+    case 'throw':
+      if (s.shuriken > 0) {
+        s.shuriken--;
+        spawnProjectile(s, 'shuriken');
+        ev.push({ type: 'throw', kind: 'shuriken' });
+      }
+      break;
+    case 'kunai':
+      if (s.kunai > 0) {
+        s.kunai--;
+        spawnProjectile(s, 'kunai');
+        ev.push({ type: 'throw', kind: 'kunai' });
+      }
+      break;
+  }
+}
+
+/** 主角目前 x 最近的車道 */
+function nearestLane(x: number): Lane {
+  return Math.max(-1, Math.min(1, Math.round(x / LANE_WIDTH))) as Lane;
+}
+
+/** 從主角位置擲出手裏劍或起爆符苦無（判定只看車道） */
+function spawnProjectile(s: RunState, kind: Projectile['kind']): void {
+  const p = s.player;
+  const lane = nearestLane(p.x);
+  s.projectiles.push({ id: s.nextId++, kind, lane, x: laneX(lane), y: p.y + 1.0, z: p.z + 0.4, startZ: p.z, dead: false });
+}
+
+/**
+ * 瞬身術：0.25 秒內同方向第二次換線 → 從第一次換線前的車道，瞬間移動到該方向最遠、且當下沒被占住的車道。
+ * @returns 有沒有發動（沒發動就照一般換線處理）
+ */
+function tryFlicker(s: RunState, dir: -1 | 1, ev: SimEvent[]): boolean {
+  const last = s.lastLane;
+  if (!s.flickerEnabled || s.flickerCooldown > 0 || !last) return false;
+  if (last.dir !== dir || s.time - last.time > FLICKER.window) return false;
+  const p = s.player;
+  const clamp = (l: number) => Math.max(-1, Math.min(1, l)) as Lane;
+  const far = clamp(last.fromLane + 2 * dir);
+  const near = clamp(last.fromLane + dir);
+  const targets = [far, near].filter((l, i, arr) => l !== last.fromLane && arr.indexOf(l) === i);
+  for (const target of targets) {
+    const x = laneX(target);
+    if (insideSolid({ x, y: p.y, z: p.z, height: playerHeight(p) }, s.obstacles)) continue;
+    const fromX = p.x;
+    p.x = x;
+    p.prevX = x;
+    p.lane = target;
+    p.laneFromX = x;
+    p.laneT = 1;
+    s.flickerCooldown = FLICKER.cooldown;
+    s.lastLane = null;
+    ev.push({ type: 'flicker', fromX, toX: x });
+    return true;
+  }
+  return false;
+}
+
+/** 打碎一個障礙（先標記，子步結束時移除）並加一點分數 */
+function breakObstacle(s: RunState, o: Obstacle, cause: BreakCause, ev: SimEvent[]): void {
+  if (o.removed) return;
+  o.removed = true;
+  s.score += o.kind === 'train' ? 60 : 25;
+  ev.push({ type: 'break', obstacleId: o.id, kind: o.kind, lane: o.lane, z: o.z, length: o.length, biome: o.biome, cause });
+}
+
+/** 推進飛行中的手裏劍與起爆符苦無：撞到同車道的第一個障礙就作用 */
+function updateProjectiles(s: RunState, v: number, dt: number, ev: SimEvent[]): void {
+  for (const pr of s.projectiles) {
+    if (pr.dead) continue;
+    const z0 = pr.z;
+    pr.z += (v + (pr.kind === 'shuriken' ? SHURIKEN.speed : KUNAI.speed)) * dt;
+    let hit: Obstacle | null = null;
+    for (const o of s.obstacles) {
+      if (o.removed || o.lane !== pr.lane) continue;
+      if (o.z + o.length < z0 || o.z > pr.z) continue;
+      if (!hit || o.z < hit.z) hit = o;
+    }
+    if (pr.kind === 'shuriken') {
+      if (hit) {
+        if (hit.kind === 'hurdle' || hit.kind === 'highBar' || hit.kind === 'block') breakObstacle(s, hit, 'shuriken', ev);
+        else ev.push({ type: 'clink', lane: pr.lane, z: Math.max(hit.z, z0) });
+        pr.dead = true;
+      } else if (pr.z - pr.startZ > SHURIKEN.range) {
+        pr.dead = true;
+      }
+    } else if (hit || pr.z - pr.startZ >= KUNAI.range) {
+      // 起爆符：清掉擲出點往前 KUNAI.range 公尺內同車道的所有障礙（含列車）
+      const z1 = pr.startZ + KUNAI.range;
+      for (const o of s.obstacles) {
+        if (o.removed || o.lane !== pr.lane) continue;
+        if (o.z + o.length < pr.startZ - 1 || o.z > z1) continue;
+        breakObstacle(s, o, 'kunai', ev);
+      }
+      ev.push({ type: 'explode', lane: pr.lane, z: hit ? Math.max(hit.z, z0) : pr.z });
+      pr.dead = true;
+    }
   }
 }
 
 /** 處理撞擊：正面撞（卷軸滑板可抵銷一次）或側撞踉蹌 */
 function handleHit(s: RunState, hit: Hit, ev: SimEvent[]): void {
   const p = s.player;
+  const o = hit.obstacle;
+  // 螺旋丸：碰到什麼都撞碎（含列車、側面）
+  if (s.power.rasengan > 0) {
+    breakObstacle(s, o, 'rasengan', ev);
+    return;
+  }
   if (hit.kind === 'front') {
+    // 正面撞擊的處理順序：查克拉攀牆 → 影分身 → 卷軸滑板 → 替身木頭 → 倒下
+    if (s.power.chakra > 0 && (o.kind === 'train' || o.kind === 'block')) {
+      s.climb = { obstacleId: o.id, top: o.kind === 'train' ? TRAIN.height : BLOCK.height };
+      p.vy = 0;
+      p.grounded = false;
+      p.jumped = true;
+      p.rolling = 0;
+      p.rollQueued = false;
+      ev.push({ type: 'climb' });
+      return;
+    }
+    if (s.clonesLeft > 0 && s.power.clones > 0 && (o.kind === 'hurdle' || o.kind === 'highBar' || o.kind === 'block')) {
+      s.clonesLeft--;
+      breakObstacle(s, o, 'clone', ev);
+      ev.push({ type: 'cloneBlock', left: s.clonesLeft });
+      if (s.clonesLeft === 0) {
+        s.power.clones = 0;
+        ev.push({ type: 'powerEnd', kind: 'clones' });
+      }
+      return;
+    }
     if (s.power.board > 0) {
       s.power.board = 0;
       s.power.invincible = BOARD_SAFE_TIME;
       ev.push({ type: 'boardBreak' });
       return;
     }
+    if (s.subs > 0) {
+      s.subs--;
+      s.power.invincible = SUB_SAFE_TIME;
+      ev.push({ type: 'substitution', cause: 'crash' });
+      return;
+    }
     s.status = 'dead';
     s.deathCause = 'crash';
-    ev.push({ type: 'crash', obstacleId: hit.obstacle.id });
+    ev.push({ type: 'crash', obstacleId: o.id });
     return;
   }
-  const fp = footprint(hit.obstacle);
+  const fp = footprint(o);
   bounceBack(p, fp.x0, fp.x1);
   p.stumble = 0.45;
-  ev.push({ type: 'stumble', obstacleId: hit.obstacle.id });
+  ev.push({ type: 'stumble', obstacleId: o.id });
   if (chaserStumble(s.chaser) === 'caught') {
+    // 被抓只有替身木頭能救：追捕者抓到的是木頭
+    if (s.subs > 0) {
+      s.subs--;
+      resetChaser(s.chaser);
+      s.power.invincible = SUB_SAFE_TIME;
+      ev.push({ type: 'substitution', cause: 'caught' });
+      return;
+    }
     s.status = 'dead';
     s.deathCause = 'caught';
     ev.push({ type: 'caught' });
@@ -265,8 +449,23 @@ function takePickup(s: RunState, k: Pickup, ev: SimEvent[]): void {
       break;
     case 'chakra':
     case 'magnet':
-    case 'clones':
       s.power[k.kind] = POWER_TIME[k.kind];
+      break;
+    case 'clones':
+      s.power.clones = POWER_TIME.clones;
+      s.clonesLeft = CLONE_BLOCKS;
+      break;
+    case 'rasengan':
+      s.power.rasengan = RASENGAN.time;
+      break;
+    case 'shuriken':
+      s.shuriken = Math.min(SHURIKEN.max, s.shuriken + SHURIKEN.pickup);
+      break;
+    case 'kunai':
+      s.kunai = Math.min(KUNAI.max, s.kunai + 1);
+      break;
+    case 'sub':
+      s.subs = 1;
       break;
     case 'scroll': {
       const reward = rollScroll(s.rewardRng);
@@ -331,7 +530,8 @@ function substep(s: RunState, actions: readonly Action[], dt: number, ev: SimEve
   const p = s.player;
   s.time += dt;
   for (const a of actions) applyAction(s, a, ev);
-  const v = speedAt(p.z);
+  if (s.flickerCooldown > 0) s.flickerCooldown = Math.max(0, s.flickerCooldown - dt);
+  const v = speedAt(p.z) * (s.power.rasengan > 0 ? RASENGAN.speedMul : 1);
   s.speed = v;
 
   // 迎面列車：玩家靠近到 trigger 距離內開動
@@ -352,7 +552,26 @@ function substep(s: RunState, actions: readonly Action[], dt: number, ev: SimEve
   p.prevHeight = playerHeight(p);
   moveHorizontal(p, dt, v);
 
-  if (s.power.toad > 0) {
+  const climb = s.climb;
+  const climbing = climb !== null;
+  if (climb) {
+    // 查克拉攀牆：貼在障礙前面往上跑，到頂面後踏上去繼續跑
+    const o = s.obstacles.find((x) => x.id === climb.obstacleId && !x.removed);
+    if (!o) {
+      s.climb = null;
+    } else {
+      p.z = o.z - PLAYER.depth / 2 - 0.01;
+      p.y += CLIMB_SPEED * dt;
+      if (p.y >= climb.top) {
+        p.y = climb.top;
+        p.z = o.z + 0.05;
+        p.vy = 0;
+        p.grounded = true;
+        p.jumped = false;
+        s.climb = null;
+      }
+    }
+  } else if (s.power.toad > 0) {
     // 騎蛤蟆：在高空一跳一跳往前
     s.toadTime += dt;
     const target = TOAD_ALTITUDE + TOAD_HOP * Math.abs(Math.sin((Math.PI * s.toadTime) / TOAD_HOP_PERIOD));
@@ -387,8 +606,10 @@ function substep(s: RunState, actions: readonly Action[], dt: number, ev: SimEve
   if (p.stumble > 0) p.stumble = Math.max(0, p.stumble - dt);
   p.height = playerHeight(p);
 
-  // 撞擊（騎蛤蟆、落地前、無敵時跳過）
-  const safe = p.flying || s.landingGrace || s.power.invincible > 0;
+  updateProjectiles(s, v, dt, ev);
+
+  // 撞擊（騎蛤蟆、落地前、攀牆中、無敵時跳過）
+  const safe = p.flying || s.landingGrace || s.power.invincible > 0 || climbing;
   if (!safe) {
     const hit = detectHit(prevBody(p), body(p), s.obstacles);
     if (hit) handleHit(s, hit, ev);
@@ -402,11 +623,14 @@ function substep(s: RunState, actions: readonly Action[], dt: number, ev: SimEve
 
   collect(s, dt, ev);
 
-  for (const k of ['toad', 'chakra', 'magnet', 'clones', 'board'] as const) {
+  for (const k of ['toad', 'chakra', 'magnet', 'clones', 'board', 'rasengan'] as const) {
     if (s.power[k] > 0) {
       s.power[k] -= dt;
       if (s.power[k] <= 0) {
         s.power[k] = 0;
+        if (k === 'clones') s.clonesLeft = 0;
+        // 螺旋丸結束：短暫無敵，避免剛好卡在障礙裡
+        if (k === 'rasengan') s.power.invincible = Math.max(s.power.invincible, RASENGAN.afterSafe);
         ev.push({ type: 'powerEnd', kind: k });
       }
     }
@@ -419,7 +643,10 @@ function substep(s: RunState, actions: readonly Action[], dt: number, ev: SimEve
   }
   updateChaser(s.chaser, dt);
 
-  s.score += v * dt * (s.power.clones > 0 ? 2 : 1);
+  if (!climbing) s.score += v * dt * (s.power.clones > 0 ? 2 : 1);
+  // 被打碎的障礙與用完的飛行道具在子步結束時才移除
+  if (s.obstacles.some((o) => o.removed)) s.obstacles = s.obstacles.filter((o) => !o.removed);
+  if (s.projectiles.some((x) => x.dead)) s.projectiles = s.projectiles.filter((x) => !x.dead);
   const biome = biomeAt(p.z);
   if (biome !== s.biome) {
     s.biome = biome;
@@ -478,6 +705,8 @@ export function revive(s: RunState): boolean {
   p.laneT = 1;
   s.power.toad = 0;
   s.landingGrace = false;
+  s.climb = null;
+  s.projectiles = [];
   s.power.invincible = REVIVE_SAFE;
   resetChaser(s.chaser);
   return true;

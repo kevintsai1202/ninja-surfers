@@ -5,11 +5,13 @@
  */
 import { MusicRunner } from './music';
 import { triggerSfx } from './sfx';
+import { preferPlaybackSession, startSilentLoopIfNeeded } from './iosAudio';
 
 export type SfxName =
   | 'coin' | 'jump' | 'superJump' | 'roll' | 'lane' | 'land' | 'stumble' | 'crash'
   | 'powerup' | 'poof' | 'toad' | 'magnet' | 'clone' | 'board' | 'boardBreak'
-  | 'scroll' | 'revive' | 'gameOver' | 'click' | 'trainHorn' | 'anbu' | 'biome';
+  | 'scroll' | 'revive' | 'gameOver' | 'click' | 'trainHorn' | 'anbu' | 'biome'
+  | 'throw' | 'clink' | 'break' | 'explode' | 'rasengan' | 'flicker' | 'substitution' | 'climb';
 export type MusicTrack = 'title' | 'village' | 'forest' | 'valley';
 export interface SfxOptions { pan?: number /* -1..1 */; pitch?: number /* 倍率，預設 1 */; volume?: number /* 0..1 */ }
 
@@ -39,12 +41,27 @@ export class AudioEngine {
   private runner: MusicRunner | null = null;
   private intensity = 0;
 
-  /** 建構時不建立 AudioContext（瀏覽器要使用者手勢才能出聲） */
-  constructor() {}
+  /**
+   * 建構時不建立 AudioContext（瀏覽器要使用者手勢才能出聲）。
+   * 掛上全域手勢監聽：每次 touchend／click／keydown 都檢查，聲音還沒真的開始就再試一次
+   * （iOS 要在 touchend／click 裡 resume；來電或切 App 回來會變成 interrupted，也要重試）。
+   */
+  constructor() {
+    if (typeof window === 'undefined') return;
+    const retry = () => {
+      if (this.ctx && this.ctx.state !== 'running') this.unlock();
+    };
+    for (const type of ['touchend', 'click', 'keydown', 'pointerup']) {
+      window.addEventListener(type, retry, { capture: true, passive: true });
+    }
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) retry();
+    });
+  }
 
-  /** 是否已建立 AudioContext */
+  /** 聲音是否真的在播（AudioContext 已建立且狀態是 running） */
   get unlocked(): boolean {
-    return this._unlocked;
+    return this._unlocked && this.ctx !== null && this.ctx.state === 'running';
   }
 
   /** 是否靜音 */
@@ -57,17 +74,25 @@ export class AudioEngine {
    * 不 await resume（headless 沒手勢時 resume 會永遠 pending）。
    */
   unlock(): void {
+    // iOS：改走媒體播放（不受響鈴／靜音鍵影響），要在建立或 resume AudioContext 之前設定
+    preferPlaybackSession();
     if (!this.ctx) {
       try {
         this.build();
       } catch {
         return; // 無 Web Audio 環境：安靜地放棄
       }
+      // 狀態變成 running 時補播音樂（resume 是非同步的）
+      this.ctx!.addEventListener('statechange', () => {
+        if (this.ctx?.state === 'running') this.applyMusic();
+      });
     }
+    // 舊版 iOS（沒有 audioSession）：在這次手勢裡播無聲迴圈，同樣讓 Web Audio 不受靜音鍵影響
+    startSilentLoopIfNeeded();
     const ctx = this.ctx!;
     if (ctx.state !== 'running') void ctx.resume().catch(() => {});
     this._unlocked = true;
-    // 補播 unlock 前就要求的曲子
+    // 補播 unlock 前就要求的曲子（還沒 running 的話，statechange 時會再補一次）
     this.applyMusic();
   }
 
@@ -90,8 +115,10 @@ export class AudioEngine {
    * @param opts pan / pitch / volume
    */
   playSfx(name: SfxName, opts?: SfxOptions): void {
-    if (!this.ctx || !this._unlocked || this._muted) return;
-    triggerSfx({ ctx: this.ctx, bus: this.sfxBus, reverb: this.reverbIn, noise: this.noise }, name, opts);
+    // 聲音還沒真的開始（例如 iOS 還在等手勢）時不排音效，避免 resume 的瞬間一口氣全部播出來
+    const ctx = this.ctx;
+    if (!ctx || !this.unlocked || this._muted) return;
+    triggerSfx({ ctx, bus: this.sfxBus, reverb: this.reverbIn, noise: this.noise }, name, opts);
   }
 
   /**
@@ -196,7 +223,8 @@ export class AudioEngine {
 
   /** 讓實際播放的曲子對齊 wantTrack：換曲時舊曲淡出、新曲淡入；null 則停止 */
   private applyMusic(): void {
-    if (!this.ctx || !this._unlocked) return;
+    const ctx = this.ctx;
+    if (!ctx || !this.unlocked) return;
     if (this.wantTrack === this.currentTrack) return;
     const old = this.runner;
     this.runner = null;
@@ -204,7 +232,7 @@ export class AudioEngine {
     if (old) old.stop(CROSSFADE);
     if (this.wantTrack) {
       const r = new MusicRunner(
-        { ctx: this.ctx, noise: this.noise, reverb: this.reverbIn },
+        { ctx, noise: this.noise, reverb: this.reverbIn },
         this.musicBus,
         this.wantTrack,
         this.intensity,

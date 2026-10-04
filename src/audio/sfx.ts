@@ -175,6 +175,63 @@ function poofAt(c: Ctx, t: number, k = 1, pf = 1): void {
  */
 const RECIPES: Record<SfxName, (c: Ctx) => number> = {
   // 回傳值 = 音效總長（秒），用來決定何時釋放 panner/gain
+  // ── 第二版新招式 ──
+  throw: (c) => {
+    // 手裏劍出手：短促的風切聲＋金屬「咻」
+    noise(c, { dur: 0.18, vol: 0.3, att: 0.01, type: 'bandpass', f: 1200, f2: 3600, q: 1.6 });
+    tone(c, { type: 'triangle', f: 2400, f2: 3200, dur: 0.12, vol: 0.08 });
+    return 0.22;
+  },
+  clink: (c) => {
+    // 打在列車上彈開：非諧波金屬鏘聲
+    tone(c, { type: 'sine', f: 2637, dur: 0.3, vol: 0.22, send: 0.2 });
+    tone(c, { type: 'sine', f: 3951, dur: 0.22, vol: 0.12 });
+    tone(c, { type: 'sine', f: 5274, dur: 0.12, vol: 0.06 });
+    noise(c, { dur: 0.05, vol: 0.2, type: 'highpass', f: 4000 });
+    return 0.35;
+  },
+  break: (c) => {
+    // 木頭碎裂：兩段劈啪＋往下掉的低音
+    noise(c, { dur: 0.22, vol: 0.55, type: 'lowpass', f: 3200, f2: 500, q: 0.8 });
+    tone(c, { type: 'triangle', f: 320, f2: 120, dur: 0.18, vol: 0.4 });
+    noise(c, { t: 0.07, dur: 0.18, vol: 0.35, type: 'bandpass', f: 1800, f2: 600, q: 1.2 });
+    tone(c, { type: 'triangle', f: 220, f2: 90, t: 0.08, dur: 0.2, vol: 0.3 });
+    return 0.35;
+  },
+  explode: (c) => {
+    // 起爆符爆炸：低頻轟聲＋長噪音尾巴＋劈啪碎屑
+    noise(c, { dur: 1.1, vol: 0.85, att: 0.005, type: 'lowpass', f: 3200, f2: 90, q: 0.7, send: 0.3 });
+    tone(c, { f: 72, f2: 28, dur: 1.1, vol: 0.9 });
+    tone(c, { type: 'triangle', f: 140, f2: 45, dur: 0.6, vol: 0.4 });
+    for (let i = 0; i < 4; i++) noise(c, { t: 0.15 + i * 0.09, dur: 0.06, vol: 0.18, type: 'bandpass', f: 2500 - i * 300, q: 2 });
+    return 1.2;
+  },
+  rasengan: (c) => {
+    // 螺旋丸：越轉越快的嗡鳴＋高頻旋風
+    tone(c, { type: 'sawtooth', f: 160, f2: 620, dur: 0.9, vol: 0.18, att: 0.1, lp: 500, lp2: 2600 });
+    tone(c, { type: 'sine', f: 320, f2: 1240, dur: 0.9, vol: 0.14, att: 0.1, send: 0.25 });
+    noise(c, { dur: 0.9, vol: 0.2, att: 0.15, type: 'bandpass', f: 600, f2: 3200, q: 3 });
+    return 0.95;
+  },
+  flicker: (c) => {
+    // 瞬身術：極快的風切＋小小的「砰」
+    noise(c, { dur: 0.14, vol: 0.32, att: 0.005, type: 'bandpass', f: 900, f2: 4500, q: 1.4 });
+    poofAt(c, 0.03, 0.45, 1.3);
+    return 0.5;
+  },
+  substitution: (c) => {
+    // 替身術：「砰」一聲煙霧＋空心木頭的叩聲
+    poofAt(c, 0, 1, 0.95);
+    tone(c, { type: 'triangle', f: 520, f2: 300, t: 0.08, dur: 0.12, vol: 0.35 });
+    tone(c, { type: 'triangle', f: 390, f2: 220, t: 0.2, dur: 0.12, vol: 0.25 });
+    return 0.55;
+  },
+  climb: (c) => {
+    // 查克拉攀牆：往上衝的風聲＋查克拉的亮音
+    noise(c, { dur: 0.25, vol: 0.28, att: 0.02, type: 'bandpass', f: 300, f2: 2600, q: 1.2 });
+    tone(c, { type: 'sine', f: 660, f2: 1760, dur: 0.25, vol: 0.1, send: 0.2 });
+    return 0.3;
+  },
   coin: (c) => {
     tone(c, { type: 'triangle', f: 1318.5, dur: 0.12, vol: 0.32 });
     tone(c, { type: 'triangle', f: 1975.5, t: 0.06, dur: 0.24, vol: 0.32 });

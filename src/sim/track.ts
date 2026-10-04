@@ -186,11 +186,18 @@ const PATTERNS: Pattern[] = [
       c.ob('ramp', lane, 0, RAMP.length);
       c.ob('train', lane, RAMP.length, len);
       c.coins(lane, RAMP.length + 3, Math.floor(len / 3), 3, TRAIN.height + 1);
-      // 旁邊車道：短列車或空著
+      // 旁邊車道：短列車或空著。圖樣長度要算到最遠的列車尾端，
+      // 不然後面空檔撒的兩可能落進延伸出去的短列車裡
+      let end = RAMP.length + len;
       for (const l of others(lane)) {
-        if (c.rng.chance(0.45)) c.ob('train', l, RAMP.length + c.rng.range(0, 6), trainLen(c.rng, 10, 30));
+        if (c.rng.chance(0.45)) {
+          const at = RAMP.length + c.rng.range(0, 6);
+          const sideLen = trainLen(c.rng, 10, 30);
+          c.ob('train', l, at, sideLen);
+          end = Math.max(end, at + sideLen);
+        }
       }
-      return RAMP.length + len;
+      return end;
     },
   },
   {
@@ -273,12 +280,16 @@ function pickPattern(rng: Rng, d: number, last: string): Pattern {
 
 /** 道具種類權重 */
 const POWER_WEIGHTS: [PowerKind, number][] = [
-  ['magnet', 25],
-  ['chakra', 20],
-  ['clones', 20],
-  ['toad', 15],
-  ['scroll', 15],
-  ['pill', 5],
+  ['magnet', 18],
+  ['chakra', 15],
+  ['clones', 14],
+  ['toad', 11],
+  ['scroll', 10],
+  ['pill', 4],
+  ['shuriken', 18],
+  ['rasengan', 6],
+  ['kunai', 7],
+  ['sub', 5],
 ];
 
 /** 擺下一段圖樣（含之後的間隔、可能的道具） */
@@ -317,6 +328,9 @@ function placePattern(s: RunState): void {
     addPickup(s, kind, rng.pick(LANES), end + g * 0.5, 1.1);
     s.gen.lastPowerZ = end;
     s.gen.powerEvery = rng.range(170, 260);
+  } else if (rng.chance(0.14)) {
+    // 間隔裡偶爾放一份手裏劍補給
+    addPickup(s, 'shuriken', rng.pick(LANES), end + g * 0.5, 1.1);
   } else if (rng.chance(0.4)) {
     ctx.coins(rng.pick(LANES), len + g * 0.25, 5, 2.2);
   }

@@ -11,12 +11,54 @@ import type { HumanoidRig } from './character/rig';
 import type { Fx } from './fx';
 import type { Stage } from './stage';
 import type { RunState } from '../sim/run';
-import type { SimEvent } from '../sim/types';
+import type { BiomeId, ObstacleKind, SimEvent } from '../sim/types';
 
 /**
- * 角色畫面：主角（動作依模擬狀態切換）、影分身、巨蛤蟆、卷軸滑板、追捕者與忍犬、查克拉光與萬象天引光環。
+ * 角色畫面：主角（動作依模擬狀態切換）、影分身、巨蛤蟆、卷軸滑板、追捕者與忍犬、查克拉光與萬象天引光環、
+ * 第二版的螺旋丸（右手上）與各招式的特效（障礙碎裂、起爆符爆炸、替身木頭、瞬身術殘影）。
  * 主角在畫面原點附近（世界往玩家移動），x、y 直接用模擬座標。
  */
+
+/** 擲出動作（右手往前甩）維持的秒數 */
+const THROW_POSE_TIME = 0.22;
+
+/** 碎片從障礙的哪個高度噴出（大約是障礙中心） */
+const BREAK_Y: Record<ObstacleKind, number> = { hurdle: 0.5, highBar: 1.85, block: 1.3, train: 1.6, ramp: 1.4 };
+
+/** 障礙碎片的顏色：依場景與種類，大致對應各場景的障礙外觀 */
+function debrisColors(biome: BiomeId, kind: ObstacleKind): number[] {
+  if (biome === 'valley') return [0x8a867c, 0x6f6a60, 0xa8a090, 0x5f7a4a];
+  if (biome === 'forest') return [0x6b4a2b, 0x8a6a42, 0x4f7a2e, 0xd2a46c];
+  if (kind === 'hurdle') return [0xc8352a, 0xf2efe6, 0x8b5a2b];
+  if (kind === 'highBar') return [0x23345e, 0xb8282a, 0xe8dcc0, 0x8b5a2b];
+  if (kind === 'train') return [0x2e5c9a, 0x3f7a3a, 0xd8c8a0, 0x5a3a22];
+  return [0xa0703a, 0x7a5230, 0xe6d6a8];
+}
+
+/** 螺旋丸：亮白核心＋半透明藍色外殼＋三圈旋轉氣流＋光暈（加法混合，不受光照） */
+function buildRasengan(glowTex: THREE.Texture): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'rasengan';
+  const add = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false } as const;
+  g.add(new THREE.Mesh(new THREE.SphereGeometry(0.16, 20, 14), new THREE.MeshBasicMaterial({ color: 0xe8fbff })));
+  g.add(new THREE.Mesh(new THREE.SphereGeometry(0.3, 24, 16), new THREE.MeshBasicMaterial({ color: 0x3fb8ff, opacity: 0.5, ...add })));
+  const swirl = new THREE.Group();
+  swirl.name = 'swirl';
+  for (let i = 0; i < 3; i++) {
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(0.25 + i * 0.028, 0.014, 6, 36),
+      new THREE.MeshBasicMaterial({ color: 0xc8f0ff, opacity: 0.85, ...add }),
+    );
+    ring.rotation.set(i * 1.1, i * 0.7, 0);
+    swirl.add(ring);
+  }
+  g.add(swirl);
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0x5ac8ff, opacity: 0.9, ...add }));
+  halo.scale.set(1.7, 1.7, 1);
+  g.add(halo);
+  g.visible = false;
+  return g;
+}
 
 /** 人形角色＋動畫器 */
 interface Actor {
@@ -46,9 +88,14 @@ export class Actors {
   private catchGap: number | null = null;
   private lastX = 0;
   private time = 0;
-  /** 上一幀的影分身狀態（出現／消失時冒煙） */
-  private clonesOn = false;
+  /** 上一幀每個影分身是否顯示（出現／消失時冒煙；擋下撞擊會一個一個消失） */
+  private readonly cloneShown = [false, false];
   private toadOn = false;
+  /** 螺旋丸（跟著右手） */
+  private readonly rasengan: THREE.Group;
+  /** 擲出動作剩餘秒數 */
+  private throwT = 0;
+  private readonly tmp = new THREE.Vector3();
 
   constructor(
     private readonly stage: Stage,
@@ -76,6 +123,8 @@ export class Actors {
       stage.scene.add(ring);
       this.magnetRings.push(ring);
     }
+    this.rasengan = buildRasengan(glowTex);
+    stage.scene.add(this.rasengan);
   }
 
   /**
@@ -92,10 +141,18 @@ export class Actors {
       this.board,
       this.chakraGlow,
       ...this.magnetRings,
+      this.rasengan,
     ];
     const prev = extra.map((o) => o.visible);
     for (const o of extra) o.visible = true;
+    // 特效（碎片、閃光、煙）也先編譯，第一次打碎障礙時才不會卡
+    const fxObjs = this.fx.warmupObjects();
+    for (const o of fxObjs) {
+      o.position.set(0, 1, -3);
+      this.stage.scene.add(o);
+    }
     renderer.compile(this.stage.scene, camera);
+    for (const o of fxObjs) o.removeFromParent();
     extra.forEach((o, i) => (o.visible = prev[i]));
   }
 
@@ -105,6 +162,7 @@ export class Actors {
     this.logs = [];
     this.catchGap = null;
     this.chaserX = 0;
+    this.throwT = 0;
   }
 
   /** 取得（第一次建立）影分身 */
@@ -163,6 +221,7 @@ export class Actors {
     const p = run.player;
     if (mode === 'title') return { state: 'run', spin: 0 };
     if (run.status === 'dead') return { state: run.deathCause === 'caught' ? 'stumble' : 'fall', spin: 0 };
+    if (run.climb) return { state: 'climb', spin: 0 };
     if (p.flying) return { state: 'ride', spin: 0 };
     if (p.rolling > 0) return { state: 'roll', spin: 1 - p.rolling / PHYS.rollTime };
     if (!p.grounded) {
@@ -170,27 +229,81 @@ export class Actors {
       return { state: 'jump', spin: 0 };
     }
     if (p.stumble > 0) return { state: 'stumble', spin: 0 };
+    if (run.power.rasengan > 0) return { state: 'rasengan', spin: 0 };
     if (run.power.board > 0) return { state: 'surf', spin: 0 };
     return { state: 'run', spin: 0 };
   }
 
-  /** 處理模擬事件（冒煙、替身木頭） */
+  /** 處理模擬事件（冒煙、替身木頭、碎裂、爆炸、殘影） */
   onEvents(events: readonly SimEvent[], run: RunState): void {
     const p = run.player;
     for (const e of events) {
-      if (e.type === 'boardBreak') {
-        // 替身術：原地留下一根木頭＋煙霧
-        const log = buildLog();
-        log.position.set(p.x, p.y, -p.z);
-        log.rotation.z = 0.25;
-        this.stage.world.add(log);
-        this.logs.push(log);
-        if (this.logs.length > 3) this.logs.shift()!.removeFromParent();
-        this.fx.puff(p.x, p.y + 0.6, p.z, 1.8, 9);
-      } else if (e.type === 'powerup') {
-        this.fx.puff(p.x, p.y + 0.8, p.z + 1, e.kind === 'toad' ? 3.2 : 1.2, e.kind === 'toad' ? 12 : 5);
-      } else if (e.type === 'coin') {
-        this.fx.sparkle(p.x, p.y + 1, p.z + 0.6);
+      switch (e.type) {
+        case 'boardBreak':
+          // 卷軸滑板擋下撞擊：卷軸碎成紙片
+          this.fx.debris(p.x, p.y + 0.3, p.z + 0.5, [0xf3e6c8, 0xb8282a, 0x8a5a33], 12, 0.8, 0.18);
+          this.fx.puff(p.x, p.y + 0.4, p.z + 0.5, 1.2, 5);
+          break;
+        case 'substitution': {
+          // 替身術：原地留下一根木頭＋煙霧（被抓時追捕者抓到的是這根木頭）
+          const log = buildLog();
+          log.position.set(p.x, p.y, -p.z);
+          log.rotation.z = 0.25;
+          this.stage.world.add(log);
+          this.logs.push(log);
+          if (this.logs.length > 3) this.logs.shift()!.removeFromParent();
+          // 煙留在原地，鏡頭會從中穿過：小一點、低一點，不要整個畫面都是煙
+          this.fx.puff(p.x, p.y + 0.4, p.z, 1.15, 6);
+          break;
+        }
+        case 'powerup':
+          this.fx.puff(p.x, p.y + 0.8, p.z + 1, e.kind === 'toad' ? 3.2 : 1.2, e.kind === 'toad' ? 12 : 5);
+          break;
+        case 'coin':
+          this.fx.sparkle(p.x, p.y + 1, p.z + 0.6);
+          break;
+        case 'throw':
+          this.throwT = THROW_POSE_TIME;
+          break;
+        case 'break': {
+          // 障礙碎裂：長的障礙（列車）沿著長度每 6 m 噴一團
+          const colors = debrisColors(e.biome, e.kind);
+          const x = e.lane * LANE_WIDTH;
+          const bursts = Math.min(5, Math.max(1, Math.ceil(e.length / 6)));
+          for (let i = 0; i < bursts; i++) {
+            const z = e.z + Math.min(e.length, 0.3 + i * 6);
+            this.fx.debris(x, BREAK_Y[e.kind], z, colors, i === 0 ? 16 : 9, 1.3, 0.24);
+            this.fx.puff(x, BREAK_Y[e.kind] * 0.5, z, 0.9, i === 0 ? 3 : 2, 0xd8d0c0);
+          }
+          if (e.cause === 'rasengan') this.fx.flash(x, BREAK_Y[e.kind], e.z, 0x6fd0ff, 4, 0.3);
+          break;
+        }
+        case 'clink':
+          // 手裏劍被列車彈開：火花
+          this.fx.sparks(e.lane * LANE_WIDTH, 1.4, e.z, 0xfff1b0, 9);
+          this.fx.flash(e.lane * LANE_WIDTH, 1.4, e.z, 0xfff1b0, 1.2, 0.15);
+          break;
+        case 'explode':
+          this.fx.explosion(e.lane * LANE_WIDTH, 1.0, e.z);
+          break;
+        case 'cloneBlock':
+          // 分身衝到前面擋下撞擊（分身本身的消失煙霧在 sync 裡處理）
+          this.fx.puff(p.x, p.y + 0.6, p.z + 1.2, 0.9, 4);
+          break;
+        case 'flicker': {
+          // 瞬身術：原地一團小煙＋橫向拉長的殘影光
+          const dist = Math.abs(e.toX - e.fromX);
+          this.fx.puff(e.fromX, p.y + 0.7, p.z, 1.1, 5);
+          this.fx.flash((e.fromX + e.toX) / 2, p.y + 0.9, p.z, 0x9fd8ff, 1.3, 0.25, Math.max(1, dist / 1.1));
+          this.fx.puff(e.toX, p.y + 0.5, p.z + 0.4, 0.8, 3);
+          break;
+        }
+        case 'climb':
+          // 查克拉攀牆：腳下一團藍白光
+          this.fx.flash(p.x, p.y + 0.2, p.z + 0.2, 0x4fb4ff, 2.2, 0.3);
+          break;
+        default:
+          break;
       }
     }
   }
@@ -208,7 +321,8 @@ export class Actors {
     const speed = mode === 'dying' || mode === 'over' ? 0 : run.speed;
     const ninja = this.ninja;
     ninja.rig.root.position.set(p.x, p.y + (state === 'surf' ? 0.1 : 0), 0);
-    ninja.anim.update(dt, { state, speed, vy: p.vy, vx, spinProgress: spin });
+    this.throwT = Math.max(0, this.throwT - dt);
+    ninja.anim.update(dt, { state, speed, vy: p.vy, vx, spinProgress: spin, throwing: this.throwT > 0 });
 
     // 卷軸滑板
     const boardOn = run.power.board > 0 && !p.flying && run.status === 'running';
@@ -233,20 +347,41 @@ export class Actors {
       }
     }
 
-    // 影分身：在主角兩側稍後方一起跑
+    // 影分身：在主角兩側稍後方一起跑；每擋下一次撞擊就少一個（剩下的數量 = clonesLeft）
     const clonesOn = run.power.clones > 0 && run.status === 'running';
-    if (clonesOn !== this.clonesOn) {
-      for (const dx of [-1.05, 1.05]) this.fx.puff(p.x + dx, p.y + 0.8, p.z - 0.6, 1.2, 5);
-      this.clonesOn = clonesOn;
-    }
     if (clonesOn || this.clones) {
       const clones = this.getClones();
       clones.forEach((c, i) => {
-        c.rig.root.visible = clonesOn;
-        if (!clonesOn) return;
-        c.rig.root.position.set(p.x + (i === 0 ? -1.05 : 1.05), p.y, 0.7);
-        c.anim.update(dt, { state: state === 'surf' ? 'run' : state, speed, vy: p.vy, vx, spinProgress: spin });
+        const dx = i === 0 ? -1.05 : 1.05;
+        const shown = clonesOn && i < run.clonesLeft;
+        if (shown !== this.cloneShown[i]) {
+          this.fx.puff(p.x + dx, p.y + 0.8, p.z - 0.6, 1.2, 5);
+          this.cloneShown[i] = shown;
+        }
+        c.rig.root.visible = shown;
+        if (!shown) return;
+        c.rig.root.position.set(p.x + dx, p.y, 0.7);
+        // 分身不拿螺旋丸、不踩卷軸滑板，也不攀牆：照一般跑
+        const cs = state === 'surf' || state === 'rasengan' || state === 'climb' ? 'run' : state;
+        c.anim.update(dt, { state: cs, speed, vy: p.vy, vx, spinProgress: spin });
       });
+    }
+
+    // 螺旋丸：跟著右手，核心脈動、氣流環旋轉
+    const rasenganOn = run.power.rasengan > 0 && run.status === 'running';
+    this.rasengan.visible = rasenganOn;
+    if (rasenganOn) {
+      ninja.rig.root.updateMatrixWorld(true);
+      ninja.rig.handR.getWorldPosition(this.tmp);
+      // 托在手掌上：手腕再往外、往上一點
+      this.rasengan.position.set(this.tmp.x + 0.1, this.tmp.y + 0.16, this.tmp.z + 0.02);
+      const pulse = 1 + Math.sin(this.time * 24) * 0.06;
+      this.rasengan.scale.setScalar(pulse);
+      const swirl = this.rasengan.getObjectByName('swirl');
+      if (swirl) {
+        swirl.rotation.y = this.time * 18;
+        swirl.rotation.x = this.time * 11;
+      }
     }
 
     // 查克拉附著：腳底藍光

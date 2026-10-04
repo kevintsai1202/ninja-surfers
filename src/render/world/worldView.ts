@@ -4,6 +4,7 @@ import { BIOME_FACTORIES } from '../biomes';
 import { biomeAt, biomeBlend } from '../../sim/biome';
 import { CoinField } from './coins';
 import { PickupField } from './pickups';
+import { ProjectileField } from './projectiles';
 import type { Stage } from '../stage';
 import type { BiomeKit } from '../biomes/types';
 import type { BiomeId, Obstacle, ObstacleKind } from '../../sim/types';
@@ -14,6 +15,7 @@ import type { RunState } from '../../sim/run';
  * - 世界往玩家移動：stage.world.position.z = 跑的距離，世界裡的物件 local z = −模擬 z。
  * - 場景段落：每個場景預先建幾種變化當模板，畫面上用 clone（共用幾何）並重複使用，跑的時候不會卡頓。
  * - 障礙：依（場景、種類、長度、外觀、是否迎面）快取模板，畫面物件用物件池重複使用。
+ * - 飛行中的手裏劍、起爆符苦無（ProjectileField）。
  * - 遠景、霧、天空依場景交界漸變。
  */
 
@@ -58,6 +60,8 @@ export class WorldView {
   private readonly backdrops: Partial<Record<BiomeId, THREE.Object3D>> = {};
   readonly coins: CoinField;
   readonly pickups: PickupField;
+  /** 飛行中的手裏劍、起爆符苦無 */
+  readonly projectiles: ProjectileField;
 
   /**
    * @param startBiome 起跑所在的場景（先建這一個，其他延後）
@@ -69,6 +73,7 @@ export class WorldView {
     this.kit(startBiome);
     this.coins = new CoinField(stage.world);
     this.pickups = new PickupField(stage.world);
+    this.projectiles = new ProjectileField(stage.world);
   }
 
   /**
@@ -123,6 +128,7 @@ export class WorldView {
     for (const c of this.activeChunks.values()) toPool(this.chunkPool, c);
     this.activeChunks.clear();
     this.pickups.clear();
+    this.projectiles.clear();
   }
 
   /**
@@ -137,6 +143,7 @@ export class WorldView {
     this.syncGates(z);
     this.coins.sync(run.coinList, time);
     this.pickups.sync(run.pickups, time);
+    this.projectiles.sync(run.projectiles, time);
     const blend = biomeBlend(z);
     this.syncBackdrops(blend.from, blend.to, blend.t);
     const from = this.kit(blend.from);
@@ -227,6 +234,7 @@ export class WorldView {
       for (const [kind, len, moving] of kinds) temp.add(this.obstacleTemplate(id, kind, len, 0, moving).clone());
       temp.add(kit.buildGate());
     }
+    for (const o of this.projectiles.warmupObjects()) temp.add(o);
     // 放在鏡頭前方的視野內（compile 只處理場景裡可見的物件）
     temp.position.z = -this.stage.world.position.z - 20;
     this.stage.world.add(temp);

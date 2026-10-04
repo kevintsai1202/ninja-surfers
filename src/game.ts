@@ -12,13 +12,13 @@ import { Autopilot } from './sim/autopilot';
 import { loadSave, writeSave, applyRunResult, type SaveData } from './sim/save';
 import { speedAt } from './sim/speed';
 import { biomeAt } from './sim/biome';
-import type { Action, Lane, PowerKind, ScrollReward, SimEvent } from './sim/types';
+import type { Action, Lane, ObstacleKind, PowerKind, ScrollReward, SimEvent } from './sim/types';
 import { LANE_WIDTH } from './config';
 
 /**
  * 遊戲主流程：標題（背景是自動駕駛的展示跑）→ 開場 → 奔跑 → 倒下 → 結算（兵糧丸復活）。
  * 網址參數：seed（固定種子）、auto=1（自動駕駛代玩）、z（起跑距離）、mute=1（靜音）、intro=0（跳過開場鏡頭）、
- * dtcap（每幀最多推進秒數，e2e 用）。
+ * dtcap（每幀最多推進秒數，e2e 用）、gen=0（不自動生成障礙，e2e 用除錯鉤子自己擺）。
  */
 
 /** 遊戲流程階段 */
@@ -37,6 +37,10 @@ const POWER_SFX: Record<PowerKind, SfxName> = {
   clones: 'clone',
   scroll: 'scroll',
   pill: 'powerup',
+  shuriken: 'powerup',
+  rasengan: 'rasengan',
+  kunai: 'powerup',
+  sub: 'poof',
 };
 
 /** 卷軸獎勵的橫幅文字 */
@@ -136,6 +140,7 @@ class Game {
       onRetry: () => get()?.start(),
       onToggleMute: () => get()?.toggleMute(),
       onBoard: () => get()?.input.push('board'),
+      onKunai: () => get()?.input.push('kunai'),
     };
   }
 
@@ -157,6 +162,8 @@ class Game {
     const seed = this.seedParam ?? Math.floor(Math.random() * 1e9);
     this.run = createRun({
       seed,
+      // gen=0：正式的一局不生成障礙（標題背景的展示跑照常生成）
+      generate: demo || this.params.get('gen') !== '0',
       boards: demo ? 0 : this.save.boards,
       pills: demo ? 0 : this.save.pills,
       introSeconds: demo ? 0 : 3,
@@ -328,7 +335,39 @@ class Game {
         case 'boardBreak':
           sfx('boardBreak');
           this.cam.shake(0.3);
-          this.ui.flash('替身術！', 'power');
+          this.ui.flash('卷軸滑板擋下了！', 'power');
+          break;
+        case 'throw':
+          sfx('throw', e.kind === 'kunai' ? 0.9 : 0.7, e.kind === 'kunai' ? 0.8 : 1);
+          break;
+        case 'break':
+          // 起爆符一次炸掉好幾個障礙：碎裂聲交給爆炸聲，不重複播
+          if (e.cause === 'kunai') break;
+          sfx('break', e.kind === 'train' ? 1 : 0.8, e.kind === 'train' ? 0.7 : 1);
+          this.cam.shake(e.kind === 'train' ? 0.35 : 0.15);
+          break;
+        case 'clink':
+          sfx('clink', 0.7);
+          break;
+        case 'explode':
+          sfx('explode');
+          this.cam.shake(0.5);
+          break;
+        case 'cloneBlock':
+          sfx('poof');
+          this.ui.flash(e.left > 0 ? `影分身擋下了！（剩 ${e.left} 個）` : '影分身擋下了！（分身用完了）', 'power', 1.4);
+          break;
+        case 'climb':
+          sfx('climb');
+          break;
+        case 'flicker':
+          sfx('flicker');
+          this.ui.flash('瞬身術！', 'power', 0.8);
+          break;
+        case 'substitution':
+          sfx('substitution');
+          this.cam.shake(0.3);
+          this.ui.flash(e.cause === 'caught' ? '替身術！抓到的是木頭！' : '替身術！', 'power');
           break;
         case 'scroll':
           this.ui.flash(rewardText(e.reward), 'power', 2.4);
@@ -414,6 +453,12 @@ class Game {
         const p = g.run.player;
         const lane = Math.max(-1, Math.min(1, Math.round(p.x / LANE_WIDTH))) as Lane;
         return addPickup(g.run, kind, lane, p.z + dz, p.y + 1.0);
+      },
+      /** 在玩家目前車道前方 dz 公尺擺一個障礙（e2e 測新招式用），回傳障礙編號 */
+      place: (kind: ObstacleKind, dz = 15, length?: number) => {
+        const p = g.run.player;
+        const lane = Math.max(-1, Math.min(1, Math.round(p.x / LANE_WIDTH))) as Lane;
+        return addObstacle(g.run, { kind, lane, z: p.z + dz, length }).id;
       },
       /** 在玩家前方放一個擋牆（測試倒下流程） */
       crash: () => addObstacle(g.run, { kind: 'block', lane: g.run.player.lane, z: g.run.player.z + 3 }),

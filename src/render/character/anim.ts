@@ -19,6 +19,8 @@ export interface Pose {
   rootRoll: number;
   /** 根節點轉向 */
   rootYaw: number;
+  /** 根節點俯仰（繞腳底；正值＝往後仰，查克拉攀牆時整個人轉成往上跑） */
+  rootPitch: number;
   /** 骨盆前傾（腿的角度是相對骨盆，所以腿要扣回來） */
   pelvisX: number;
   pelvisYaw: number;
@@ -54,6 +56,7 @@ export function neutralPose(): Pose {
     bodyY: 0,
     rootRoll: 0,
     rootYaw: 0,
+    rootPitch: 0,
     pelvisX: 0,
     pelvisYaw: 0,
     spineX: 0,
@@ -95,7 +98,9 @@ export type AnimState =
   | 'surf'
   | 'ride'
   | 'grab'
-  | 'paint';
+  | 'paint'
+  | 'rasengan'
+  | 'climb';
 
 /** 跑步風格：忍者跑（主角、暗部）或一般衝刺（伊魯卡老師） */
 export type RunStyle = 'naruto' | 'sprint';
@@ -207,6 +212,32 @@ export function jumpPose(vyNorm: number): Pose {
   pose.knL = -(70 + 20 * rise);
   pose.anR = -20;
   pose.anL = 10;
+  return pose;
+}
+
+/**
+ * 螺旋丸衝刺：保留忍者跑的前傾與腿；右手托著螺旋丸往右後方張開（比平常的 V 字張更開），
+ * 球在身體右側、背部高度，從背後的追尾鏡頭看得到（往前伸的話會被身體擋住）。左手照樣拖在身後。
+ */
+export function rasenganPose(phase: number): Pose {
+  const pose = narutoRunPose(phase);
+  pose.shRX = -10;
+  pose.shRY = 0;
+  pose.shRZ = 50;
+  pose.elR = 14;
+  // 手掌往上翻，像托著球
+  pose.handRX = -35;
+  return pose;
+}
+
+/**
+ * 查克拉攀牆：忍者跑的動作整個往後仰 70°（繞腳底），腳踩在前面的牆上往上跑。
+ * 攀牆只有零點幾秒，所以只轉根節點，不另外設計全身姿勢。
+ */
+export function climbPose(phase: number): Pose {
+  const pose = narutoRunPose(phase);
+  pose.rootPitch = 70;
+  pose.bodyY = 0;
   return pose;
 }
 
@@ -376,6 +407,10 @@ export function poseFor(state: AnimState, phase: number, t: number, style: RunSt
       return grabPose(t);
     case 'paint':
       return paintPose(t);
+    case 'rasengan':
+      return rasenganPose(phase);
+    case 'climb':
+      return climbPose(phase);
     default:
       return neutralPose();
   }
@@ -392,6 +427,8 @@ export interface AnimInput {
   vx?: number;
   /** 翻滾或空翻的進度（0..1），由模擬層的計時換算 */
   spinProgress?: number;
+  /** 正在擲手裏劍／苦無：右手往前甩（疊加在任何動作上） */
+  throwing?: boolean;
 }
 
 /**
@@ -438,6 +475,14 @@ export class CharacterAnimator {
     const target = poseFor(input.state, this.phase, this.stateTime, this.style, vyNorm);
     // 換線傾身：往移動方向側傾（往右移 = 繞 z 軸負方向）
     target.rootRoll += -Math.max(-1, Math.min(1, (input.vx ?? 0) / 18)) * 16;
+    // 擲出：右手往前甩到接近水平（世界角約 80°，扣掉軀幹前傾）
+    if (input.throwing) {
+      const lean = target.pelvisX + target.spineX + target.chestX;
+      target.shRX = 80 - lean;
+      target.shRY = 0;
+      target.shRZ = 14;
+      target.elR = 6;
+    }
 
     // 混合速度：跑步循環本身就連續，用較快的混合；切換狀態的瞬間也不會硬切
     const rate = input.state === 'roll' || input.state === 'fall' ? 22 : 16;
@@ -453,7 +498,7 @@ export class CharacterAnimator {
   private apply(input: AnimInput): void {
     const r = this.rig;
     const p = this.current;
-    r.root.rotation.set(0, p.rootYaw * DEG, p.rootRoll * DEG);
+    r.root.rotation.set(p.rootPitch * DEG, p.rootYaw * DEG, p.rootRoll * DEG);
     r.body.position.y = DIMS.hip - SPIN_Y + p.bodyY;
     r.pelvis.rotation.set(p.pelvisX * DEG, p.pelvisYaw * DEG, 0);
     r.spine.rotation.set(p.spineX * DEG, p.spineY * DEG, p.spineZ * DEG);

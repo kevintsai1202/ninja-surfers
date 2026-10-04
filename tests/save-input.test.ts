@@ -95,15 +95,20 @@ describe('滑動手勢', () => {
     expect(g.move(3, 50, 110, 2.05)).toBe('left');
   });
 
-  it('雙擊（0.3 秒內、位置相近）＝啟動卷軸滑板；間隔太久不算', () => {
+  it('輕點（沒滑動、很快放開）＝擲手裏劍；連點兩下就擲兩支（不再是卷軸滑板）', () => {
     const g = new SwipeTracker();
     g.start(1, 100, 100, 0);
-    expect(g.end(1, 101, 100, 0.08)).toBeNull();
+    expect(g.end(1, 101, 100, 0.08)).toBe('throw');
     g.start(2, 104, 102, 0.2);
-    expect(g.end(2, 104, 102, 0.26)).toBe('board');
-    g.start(3, 100, 100, 5);
-    g.end(3, 100, 100, 5.05);
-    g.start(4, 100, 100, 5.6);
-    expect(g.end(4, 100, 100, 5.65)).toBeNull();
+    expect(g.end(2, 104, 102, 0.26)).toBe('throw');
+  });
+
+  it('滑動後放開不擲；長按後放開也不擲', () => {
+    const g = new SwipeTracker();
+    g.start(1, 100, 100, 0);
+    expect(g.move(1, 160, 100, 0.05)).toBe('right');
+    expect(g.end(1, 160, 100, 0.1)).toBeNull();
+    g.start(2, 100, 100, 1);
+    expect(g.end(2, 100, 100, 1.6)).toBeNull();
   });
 });

@@ -5,12 +5,14 @@ import { TRAIN, BLOCK } from '../src/config';
 import type { Obstacle } from '../src/sim/types';
 
 /** 用自動駕駛跑到 targetZ 或死掉為止，回傳狀態與每次死前附近的障礙（除錯用） */
-function drive(seed: number, targetZ: number, reaction: number): { s: RunState; report: string } {
-  const s = createRun({ seed, introSeconds: 0 });
+function drive(seed: number, targetZ: number, reaction: number, chakra = false): { s: RunState; report: string } {
+  // 瞬身術關掉：公平性要用「不能瞬移」的標準驗（自動駕駛換兩線的兩次按鍵間隔在瞬身術時窗內）
+  const s = createRun({ seed, introSeconds: 0, flicker: false });
   const bot = new Autopilot({ reaction });
   const dt = 1 / 60;
   let guard = 0;
   while (s.status === 'running' && s.player.z < targetZ && guard++ < 400000) {
+    if (chakra) s.power.chakra = 1e9;
     step(s, bot.decide(s, dt), dt);
   }
   const p = s.player;
@@ -115,6 +117,15 @@ describe('關卡確實有挑戰', () => {
     expect(roofTime).toBeGreaterThan(2);
     expect(count.coin ?? 0).toBeGreaterThan(50);
   });
+});
+
+describe('公平性：查克拉攀牆不會造成新的死法', () => {
+  for (const seed of [1, 2, 3, 4]) {
+    it(`seed ${seed}：查克拉附著常駐（高跳＋攀牆）也跑到 3000 m 不死`, () => {
+      const { s, report } = drive(seed, 3000, 0.35, true);
+      expect(s.status, report).toBe('running');
+    });
+  }
 });
 
 describe('公平性：自動駕駛（有反應延遲）跑得完', () => {

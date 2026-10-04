@@ -20,10 +20,20 @@ export type Lane = -1 | 0 | 1;
 export type ObstacleKind = 'hurdle' | 'highBar' | 'block' | 'train' | 'ramp';
 
 /** 玩家輸入動作 */
-export type Action = 'left' | 'right' | 'jump' | 'roll' | 'board';
+export type Action = 'left' | 'right' | 'jump' | 'roll' | 'board' | 'throw' | 'kunai';
 
-/** 場上可撿的道具 */
-export type PowerKind = 'toad' | 'chakra' | 'magnet' | 'clones' | 'scroll' | 'pill';
+/** 場上可撿的道具（第二版加：手裏劍、螺旋丸、起爆符苦無、替身木頭） */
+export type PowerKind =
+  | 'toad'
+  | 'chakra'
+  | 'magnet'
+  | 'clones'
+  | 'scroll'
+  | 'pill'
+  | 'shuriken'
+  | 'rasengan'
+  | 'kunai'
+  | 'sub';
 
 /** 障礙 */
 export interface Obstacle {
@@ -46,6 +56,8 @@ export interface Obstacle {
   variant: number;
   /** 生成時所在的場景（決定外觀） */
   biome: BiomeId;
+  /** 已被打碎（子步結束時才從陣列移除，避免迭代中改動陣列） */
+  removed?: boolean;
 }
 
 /** 兩（金幣） */
@@ -78,7 +90,23 @@ export type ScrollReward =
   | { kind: 'jackpot'; amount: number };
 
 /** 有時效的能力 */
-export type TimedPower = 'toad' | 'chakra' | 'magnet' | 'clones' | 'board';
+export type TimedPower = 'toad' | 'chakra' | 'magnet' | 'clones' | 'board' | 'rasengan';
+
+/** 飛行中的手裏劍或起爆符苦無（只看車道判定，不看高度） */
+export interface Projectile {
+  id: number;
+  kind: 'shuriken' | 'kunai';
+  lane: Lane;
+  x: number;
+  y: number;
+  z: number;
+  /** 擲出的位置（算射程、爆炸範圍） */
+  startZ: number;
+  dead: boolean;
+}
+
+/** 障礙被打碎的原因 */
+export type BreakCause = 'shuriken' | 'kunai' | 'rasengan' | 'clone';
 
 /** 模擬事件（畫面、音效、UI 依事件反應） */
 export type SimEvent =
@@ -98,4 +126,12 @@ export type SimEvent =
   | { type: 'biome'; id: BiomeId }
   | { type: 'chaser'; identity: 'iruka' | 'anbu' }
   | { type: 'trainStart'; id: number }
-  | { type: 'revive' };
+  | { type: 'revive' }
+  | { type: 'throw'; kind: 'shuriken' | 'kunai' }
+  | { type: 'break'; obstacleId: number; kind: ObstacleKind; lane: Lane; z: number; length: number; biome: BiomeId; cause: BreakCause }
+  | { type: 'clink'; lane: Lane; z: number }
+  | { type: 'explode'; lane: Lane; z: number }
+  | { type: 'cloneBlock'; left: number }
+  | { type: 'climb' }
+  | { type: 'flicker'; fromX: number; toX: number }
+  | { type: 'substitution'; cause: 'crash' | 'caught' };

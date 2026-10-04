@@ -21,10 +21,12 @@ export interface UiHandlers {
   onRetry(): void;
   onToggleMute(): void;
   onBoard(): void;
+  /** 點「爆」按鈕：擲起爆符苦無 */
+  onKunai(): void;
 }
 
 /** HUD 上顯示的能力（順序固定） */
-const HUD_POWERS: TimedPower[] = ['toad', 'chakra', 'magnet', 'clones', 'board'];
+const HUD_POWERS: TimedPower[] = ['rasengan', 'toad', 'chakra', 'magnet', 'clones', 'board'];
 
 /** 能力 → 道具資訊（卷軸滑板不是場上道具，另外定義） */
 function powerInfo(k: TimedPower): { kanji: string; color: string; name: string } {
@@ -52,9 +54,17 @@ export class Ui {
   private readonly ryoEl: HTMLSpanElement;
   private readonly multEl: HTMLDivElement;
   private readonly powersEl: HTMLDivElement;
-  private readonly powerRows = new Map<TimedPower, { row: HTMLDivElement; bar: HTMLElement }>();
+  private readonly powerRows = new Map<TimedPower, { row: HTMLDivElement; bar: HTMLElement; label: HTMLElement }>();
   private readonly boardBtn: HTMLButtonElement;
   private readonly boardCount: HTMLSpanElement;
+  /** 左下角的手裏劍數量 */
+  private readonly shurikenChip: HTMLDivElement;
+  private readonly shurikenCount: HTMLElement;
+  /** 左下角的替身木頭（持有時顯示） */
+  private readonly subChip: HTMLDivElement;
+  /** 右下角卷軸滑板上方的「爆」按鈕（持有起爆符苦無時顯示） */
+  private readonly kunaiBtn: HTMLButtonElement;
+  private readonly kunaiCount: HTMLSpanElement;
   private readonly dangerEl: HTMLDivElement;
   private readonly banner: HTMLDivElement;
   private readonly title: HTMLElement;
@@ -94,19 +104,37 @@ export class Ui {
       row.hidden = true;
       row.innerHTML = `<b style="background:${info.color}">${info.kanji}</b><span><em>${info.name}</em><i><s></s></i></span>`;
       this.powersEl.appendChild(row);
-      this.powerRows.set(k, { row, bar: row.querySelector('s')! });
+      this.powerRows.set(k, { row, bar: row.querySelector('s')!, label: row.querySelector('em')! });
     }
     this.boardBtn = el('button', 'board-btn', '<b>板</b>');
     this.boardBtn.setAttribute('aria-label', '通靈卷軸滑板');
     this.boardCount = el('span', 'count', '0');
-    this.boardBtn.append(this.boardCount, el('small', 'hint', '<span class="kb">Space</span><span class="tc">雙擊</span>'));
+    this.boardBtn.append(this.boardCount, el('small', 'hint', '<span class="kb">Space</span>'));
     this.boardBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       h.onBoard();
     });
+    // 起爆符苦無按鈕：持有時才出現，疊在卷軸滑板按鈕上方
+    this.kunaiBtn = el('button', 'kunai-btn', '<b>爆</b>');
+    this.kunaiBtn.setAttribute('aria-label', '起爆符苦無');
+    this.kunaiCount = el('span', 'count', '0');
+    this.kunaiBtn.append(this.kunaiCount, el('small', 'hint', '<span class="kb">G</span>'));
+    this.kunaiBtn.hidden = true;
+    this.kunaiBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      h.onKunai();
+    });
+    // 左下角：手裏劍數量與替身木頭（純顯示，不擋觸控）
+    const arms = el('div', 'arms');
+    this.shurikenChip = el('div', 'arm shuriken-chip', '<i class="star"></i>');
+    this.shurikenCount = el('b', 'n', '3');
+    this.shurikenChip.append(this.shurikenCount, el('small', 'hint', '<span class="kb">F</span><span class="tc">點畫面</span>'));
+    this.subChip = el('div', 'arm sub-chip', '<b class="kanji">替</b><small>替身木頭</small>');
+    this.subChip.hidden = true;
+    arms.append(this.shurikenChip, this.subChip);
     this.dangerEl = el('div', 'danger');
     this.dangerEl.hidden = true;
-    this.hud.append(this.dangerEl, pause, scoreBox, this.powersEl, this.boardBtn);
+    this.hud.append(this.dangerEl, pause, scoreBox, this.powersEl, arms, this.kunaiBtn, this.boardBtn);
     this.root.appendChild(this.hud);
 
     this.banner = el('div', 'banner');
@@ -145,18 +173,25 @@ export class Ui {
         <tr><th>換線</th><td><span class="kb">← → ／ A D</span><span class="tc">左右滑</span></td></tr>
         <tr><th>跳</th><td><span class="kb">↑ ／ W</span><span class="tc">上滑</span></td></tr>
         <tr><th>滾（空中＝急降）</th><td><span class="kb">↓ ／ S</span><span class="tc">下滑</span></td></tr>
-        <tr><th>通靈卷軸滑板</th><td><span class="kb">Space</span><span class="tc">雙擊畫面</span></td></tr>
+        <tr><th>手裏劍</th><td><span class="kb">F</span><span class="tc">點一下畫面</span></td></tr>
+        <tr><th>起爆符苦無</th><td><span class="kb">G</span><span class="tc">「爆」按鈕</span></td></tr>
+        <tr><th>瞬身術</th><td><span class="kb">同方向快按兩下</span><span class="tc">同方向快滑兩下</span></td></tr>
+        <tr><th>通靈卷軸滑板</th><td><span class="kb">Space</span><span class="tc">「板」按鈕</span></td></tr>
         <tr><th>暫停</th><td><span class="kb">Esc ／ P</span><span class="tc">左上角按鈕</span></td></tr>
       </table>
       <ul class="powers-help">
+        <li><b style="background:#4f6475">劍</b>手裏劍 +3：打碎前方的低欄、橫樑、擋牆（列車打不壞），最多 9 支</li>
+        <li><b style="background:#c21d3c">爆</b>起爆符苦無：炸掉同一車道前方 30 m 的障礙，連列車都炸得掉</li>
+        <li><b style="background:#15b3d6">螺</b>螺旋丸：3 秒衝刺，撞到什麼都撞碎</li>
+        <li><b style="background:#8a5a2b">替</b>替身木頭：擋下一次倒下或被抓</li>
         <li><b style="background:#e4572a">蛙</b>通靈術・巨蛤蟆：騎蛤蟆在空中大跳，無敵</li>
-        <li><b style="background:#2f7de1">查</b>查克拉附著：跳得更高，一跳上車頂</li>
+        <li><b style="background:#2f7de1">查</b>查克拉附著：跳得更高；正面撞上列車或擋牆會直接跑上去</li>
         <li><b style="background:#7a4bd6">引</b>萬象天引：把附近的兩全部吸過來</li>
-        <li><b style="background:#f09a17">影</b>多重影分身：分數 ×2，分身幫忙撿兩</li>
+        <li><b style="background:#f09a17">影</b>多重影分身：分數 ×2，每個分身幫你擋一次低欄、橫樑或擋牆</li>
         <li><b style="background:#b8282a">秘</b>秘傳卷軸：隨機獎勵</li>
         <li><b style="background:#3d9a4a">丸</b>兵糧丸：被抓之後可以復活</li>
       </ul>
-      <p>正面撞上障礙就會倒下；側面擦撞會踉蹌，追捕者會追上來，短時間內再踉蹌一次就被抓。</p>
+      <p>正面撞上障礙就會倒下；側面擦撞會踉蹌，追捕者會追上來，短時間內再踉蹌一次就被抓。瞬身術：0.25 秒內往同一個方向換線兩次，會瞬間移到最遠的安全車道（冷卻 1.2 秒）。</p>
       <button class="big close">知道了</button>`;
     this.howto.querySelector('.close')!.addEventListener('click', () => this.showHowto(false));
     this.root.appendChild(this.howto);
@@ -252,8 +287,17 @@ export class Ui {
       r.row.hidden = left <= 0;
       if (left > 0) r.bar.style.width = `${Math.min(100, (left / POWER_TIME[k]) * 100)}%`;
     }
+    // 影分身：名稱後面標出還剩幾個分身可以擋
+    const clonesLabel = `${POWER_INFO.clones.name} ×${run.clonesLeft}`;
+    const cl = this.powerRows.get('clones')!.label;
+    if (cl.textContent !== clonesLabel) cl.textContent = clonesLabel;
     this.boardCount.textContent = String(run.boards);
     this.boardBtn.classList.toggle('empty', run.boards <= 0 || run.power.board > 0);
+    this.shurikenCount.textContent = String(run.shuriken);
+    this.shurikenChip.classList.toggle('empty', run.shuriken <= 0);
+    this.subChip.hidden = run.subs <= 0;
+    this.kunaiBtn.hidden = run.kunai <= 0;
+    this.kunaiCount.textContent = String(run.kunai);
     this.dangerEl.hidden = run.chaser.danger <= 0;
   }
 

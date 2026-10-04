@@ -2,7 +2,7 @@ import { SwipeTracker } from './gesture';
 import type { Action } from '../sim/types';
 
 /**
- * 輸入：鍵盤（方向鍵／WASD／Space／Esc）與觸控滑動（也支援滑鼠拖曳），
+ * 輸入：鍵盤（方向鍵／WASD／Space／F／G／Esc）與觸控（滑動＋輕點，也支援滑鼠），
  * 動作先排進佇列，遊戲每幀取走。
  */
 
@@ -17,6 +17,9 @@ const KEYS: Record<string, Action> = {
   ArrowDown: 'roll',
   KeyS: 'roll',
   Space: 'board',
+  // 第二版：F 擲手裏劍、G 擲起爆符苦無
+  KeyF: 'throw',
+  KeyG: 'kunai',
 };
 
 export class Input {
