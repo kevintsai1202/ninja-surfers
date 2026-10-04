@@ -355,7 +355,8 @@ export class Actors {
         const dx = i === 0 ? -1.05 : 1.05;
         const shown = clonesOn && i < run.clonesLeft;
         if (shown !== this.cloneShown[i]) {
-          this.fx.puff(p.x + dx, p.y + 0.8, p.z - 0.6, 1.2, 5);
+          // 分身在主角後方、比較靠近鏡頭：煙小一點
+          this.fx.puff(p.x + dx, p.y + 0.7, p.z - 0.6, 0.95, 4);
           this.cloneShown[i] = shown;
         }
         c.rig.root.visible = shown;
