@@ -85,6 +85,19 @@ test.describe('iPhone 尺寸（390×664，Safari 有網址列時的可視範圍�
     await expect(howto).toBeHidden();
     expect(errors, errors.join('\n')).toEqual([]);
   });
+
+  test('手機：標題畫面的選角 ◀ ▶ 與開始按鈕都在畫面內，點了會換角色', async ({ page }) => {
+    const errors = await open(page, 'seed=5&intro=0&mute=1&gen=0&dtcap=0.15');
+    for (const sel of ['.title-screen .char-prev', '.title-screen .char-next', '.title-screen .char-name', '.title-screen .start']) {
+      expect(await inViewport(page, sel), `${sel} 超出畫面`).toBe(true);
+    }
+    await page.locator('.title-screen .char-next').tap();
+    await expect(page.locator('.title-screen .char-name')).toHaveText('佐助');
+    await expect(page.locator('.title-screen .char-lock')).toBeVisible();
+    expect(await inViewport(page, '.title-screen .char-lock')).toBe(true);
+    await page.screenshot({ path: 'e2e/screenshots/mobile-title-chars.png', timeout: 240_000 });
+    expect(errors, errors.join('\n')).toEqual([]);
+  });
 });
 
 test('手機：點一下畫面擲手裏劍、點「爆」按鈕擲起爆符苦無', async ({ page }) => {

@@ -38,6 +38,10 @@ export interface HDBodySpec {
   zipper?: boolean;
   /** 手套顏色（不給就是皮膚） */
   gloves?: number;
+  /** 露出手臂：forearm＝短袖（手肘以下是皮膚）、full＝無袖（整隻手臂是皮膚）；不給＝長袖 */
+  bareArms?: 'forearm' | 'full';
+  /** 手腕的袖口環（預設有；無袖、短袖的角色通常不要） */
+  wristCuffs?: boolean;
   /** 描邊粗細（0 = 不描邊） */
   outline?: number;
 }
@@ -235,12 +239,15 @@ export function buildHumanoidHD(spec: HDBodySpec): HumanoidRig {
     const sh = joint(chest, side * D.shoulderHalf, D.chest - 0.035, 0, side < 0 ? 'shoulderL' : 'shoulderR');
     // 袖子貼圖的外側條紋在 u = 0.25（+x）；左手轉半圈讓條紋也在外側
     const rotY = side > 0 ? 0 : Math.PI;
-    part(sh, new THREE.SphereGeometry(0.084, 16, 10), sleeveBall);
-    part(sh, taperedLimb(0.08, 0.066, D.upperArm, rotY), sleeve);
+    // 露手臂：無袖整隻是皮膚、短袖手肘以下是皮膚
+    const bareUpper = spec.bareArms === 'full';
+    const bareLower = spec.bareArms !== undefined;
+    part(sh, new THREE.SphereGeometry(0.084, 16, 10), bareUpper ? skin : sleeveBall);
+    part(sh, taperedLimb(0.08, 0.066, D.upperArm, rotY), bareUpper ? skin : sleeve);
     const el = joint(sh, 0, -D.upperArm, 0, side < 0 ? 'elbowL' : 'elbowR');
-    part(el, new THREE.SphereGeometry(0.066, 12, 8), sleeveBall);
-    part(el, taperedLimb(0.066, 0.058, D.forearm * 0.82, rotY), sleeve);
-    part(el, ringBand(0.054, 0.052, 0.017), cuffs, [0, -D.forearm * 0.86, 0]);
+    part(el, new THREE.SphereGeometry(0.066, 12, 8), bareLower ? skin : sleeveBall);
+    part(el, taperedLimb(0.066, 0.058, D.forearm * 0.82, rotY), bareLower ? skin : sleeve);
+    if (spec.wristCuffs !== false) part(el, ringBand(0.054, 0.052, 0.017), cuffs, [0, -D.forearm * 0.86, 0]);
     const hand = joint(el, 0, -D.forearm, 0, side < 0 ? 'handL' : 'handR');
     // 手掌（掌心朝內）＋四指＋拇指（在前方）
     part(hand, new THREE.CylinderGeometry(0.034, 0.036, 0.03, 12), hands, [0, -0.005, 0]);

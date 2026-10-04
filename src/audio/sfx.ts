@@ -213,6 +213,23 @@ const RECIPES: Record<SfxName, (c: Ctx) => number> = {
     noise(c, { dur: 0.9, vol: 0.2, att: 0.15, type: 'bandpass', f: 600, f2: 3200, q: 3 });
     return 0.95;
   },
+  chidori: (c) => {
+    // 千鳥／雷切：一陣陣劈啪的電流聲＋像鳥叫的高頻啁啾
+    for (let i = 0; i < 9; i++) {
+      noise(c, { t: i * 0.09, dur: 0.06, vol: 0.28, att: 0.002, type: 'bandpass', f: 2600 + (i % 3) * 900, q: 4 });
+      tone(c, { type: 'square', t: i * 0.09 + 0.01, f: 2200 + (i % 2) * 700, f2: 3100 - (i % 2) * 500, dur: 0.05, vol: 0.05, lp: 4200 });
+    }
+    noise(c, { dur: 0.9, vol: 0.12, att: 0.05, type: 'highpass', f: 3500, send: 0.2 });
+    return 0.95;
+  },
+  strength: (c) => {
+    // 怪力：低沉的蓄力聲往上升＋一記重拳的悶響
+    tone(c, { f: 55, f2: 150, dur: 0.45, vol: 0.5, att: 0.06 });
+    tone(c, { type: 'triangle', f: 220, f2: 440, dur: 0.45, vol: 0.12, att: 0.08, send: 0.2 });
+    noise(c, { t: 0.42, dur: 0.18, vol: 0.5, type: 'lowpass', f: 900, f2: 120, q: 0.8 });
+    tone(c, { t: 0.42, f: 90, f2: 40, dur: 0.25, vol: 0.6 });
+    return 0.7;
+  },
   flicker: (c) => {
     // 瞬身術：極快的風切＋小小的「砰」
     noise(c, { dur: 0.14, vol: 0.32, att: 0.005, type: 'bandpass', f: 900, f2: 4500, q: 1.4 });

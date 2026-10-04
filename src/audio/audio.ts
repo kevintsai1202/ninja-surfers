@@ -11,7 +11,8 @@ export type SfxName =
   | 'coin' | 'jump' | 'superJump' | 'roll' | 'lane' | 'land' | 'stumble' | 'crash'
   | 'powerup' | 'poof' | 'toad' | 'magnet' | 'clone' | 'board' | 'boardBreak'
   | 'scroll' | 'revive' | 'gameOver' | 'click' | 'trainHorn' | 'anbu' | 'biome'
-  | 'throw' | 'clink' | 'break' | 'explode' | 'rasengan' | 'flicker' | 'substitution' | 'climb';
+  | 'throw' | 'clink' | 'break' | 'explode' | 'rasengan' | 'flicker' | 'substitution' | 'climb'
+  | 'chidori' | 'strength';
 export type MusicTrack = 'title' | 'village' | 'forest' | 'valley';
 export interface SfxOptions { pan?: number /* -1..1 */; pitch?: number /* 倍率，預設 1 */; volume?: number /* 0..1 */ }
 

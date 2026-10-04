@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { stdMat, glow } from '../materials';
 import { badgeTexture, glowTexture } from '../textures';
 import type { Pickup, PowerKind } from '../../sim/types';
+import type { JutsuInfo } from '../../sim/characters';
 
 /**
  * 場上的道具：漂浮旋轉的漢字徽章（蛙／查／引／影／丸／劍／螺／爆／替）與秘傳卷軸，後面有一圈光暈。
@@ -22,12 +23,20 @@ export const POWER_INFO: Record<PowerKind, { kanji: string; color: string; name:
   sub: { kanji: '替', color: '#8a5a2b', name: '替身木頭' },
 };
 
+/**
+ * 道具的徽章資訊：「螺旋丸」依角色換成招牌忍術（千鳥／怪力／雷切），其他道具不變。
+ * @param jutsu 目前角色的招牌忍術（不給就是螺旋丸）
+ */
+export function powerInfo(kind: PowerKind, jutsu?: JutsuInfo | null): { kanji: string; color: string; name: string } {
+  if (kind === 'rasengan' && jutsu) return { kanji: jutsu.kanji, color: jutsu.color, name: jutsu.name };
+  return POWER_INFO[kind];
+}
+
 /** 共用的光暈貼圖 */
 let glowTex: THREE.Texture | null = null;
 
 /** 建立一種道具的外觀模板 */
-function buildTemplate(kind: PowerKind): THREE.Group {
-  const info = POWER_INFO[kind];
+function buildTemplate(kind: PowerKind, info: { kanji: string; color: string; name: string }): THREE.Group {
   const g = new THREE.Group();
   g.name = `pickup-${kind}`;
   const spinner = new THREE.Group();
@@ -69,11 +78,26 @@ function buildTemplate(kind: PowerKind): THREE.Group {
 
 /** 場上所有道具的畫面 */
 export class PickupField {
-  private readonly templates = new Map<PowerKind, THREE.Group>();
+  /** 模板與物件池的鍵：螺旋丸依忍術漢字分開（換角色時徽章字不同） */
+  private readonly templates = new Map<string, THREE.Group>();
   private readonly views = new Map<number, THREE.Object3D>();
-  private readonly pool = new Map<PowerKind, THREE.Object3D[]>();
+  private readonly pool = new Map<string, THREE.Object3D[]>();
+  /** 目前角色的招牌忍術（螺旋丸道具的外觀） */
+  private jutsu: JutsuInfo | null = null;
 
   constructor(private readonly parent: THREE.Object3D) {}
+
+  /** 換角色：螺旋丸道具改成該角色的招牌忍術徽章（場上已有的畫面先收掉，下一幀重建） */
+  setJutsu(jutsu: JutsuInfo): void {
+    if (this.jutsu?.kanji === jutsu.kanji) return;
+    this.jutsu = jutsu;
+    this.clear();
+  }
+
+  /** 道具的模板鍵 */
+  private keyOf(kind: PowerKind): string {
+    return kind === 'rasengan' && this.jutsu ? `rasengan|${this.jutsu.kanji}` : kind;
+  }
 
   /** 依模擬的道具清單更新畫面（漂浮、旋轉） */
   sync(pickups: readonly Pickup[], time: number): void {
@@ -83,8 +107,9 @@ export class PickupField {
       alive.add(k.id);
       let v = this.views.get(k.id);
       if (!v) {
-        v = this.pool.get(k.kind)?.pop() ?? this.template(k.kind).clone();
-        v.userData.kind = k.kind;
+        const key = this.keyOf(k.kind);
+        v = this.pool.get(key)?.pop() ?? this.template(k.kind).clone();
+        v.userData.key = key;
         this.parent.add(v);
         this.views.set(k.id, v);
       }
@@ -96,10 +121,10 @@ export class PickupField {
       if (alive.has(id)) continue;
       v.removeFromParent();
       this.views.delete(id);
-      const kind = v.userData.kind as PowerKind;
-      const list = this.pool.get(kind) ?? [];
+      const key = v.userData.key as string;
+      const list = this.pool.get(key) ?? [];
       list.push(v);
-      this.pool.set(kind, list);
+      this.pool.set(key, list);
     }
   }
 
@@ -110,10 +135,11 @@ export class PickupField {
 
   /** 取得（必要時建立）道具模板 */
   private template(kind: PowerKind): THREE.Group {
-    let t = this.templates.get(kind);
+    const key = this.keyOf(kind);
+    let t = this.templates.get(key);
     if (!t) {
-      t = buildTemplate(kind);
-      this.templates.set(kind, t);
+      t = buildTemplate(kind, powerInfo(kind, this.jutsu));
+      this.templates.set(key, t);
     }
     return t;
   }

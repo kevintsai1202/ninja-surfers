@@ -1,3 +1,5 @@
+import { isCharacterId, type CharacterId } from './characters';
+
 /**
  * 存檔（localStorage）：純函式＋不可變更新，讀寫都包 try/catch（無痕模式、封鎖網站資料時不能壞）。
  */
@@ -24,11 +26,26 @@ export interface SaveData {
   seenTutorial: boolean;
   /** 總局數 */
   runs: number;
+  /** 選擇的角色（第二版多角色） */
+  character: CharacterId;
+  /** 單局最遠距離（公尺，解鎖角色用；和分數不同，分數有影分身 ×2 與打碎障礙的加分） */
+  bestDist: number;
 }
 
 /** 新玩家的預設存檔（送 2 個卷軸滑板、1 顆兵糧丸） */
 export function defaultSave(): SaveData {
-  return { schemaVersion: SAVE_VERSION, best: 0, ryo: 0, boards: 2, pills: 1, muted: false, seenTutorial: false, runs: 0 };
+  return {
+    schemaVersion: SAVE_VERSION,
+    best: 0,
+    ryo: 0,
+    boards: 2,
+    pills: 1,
+    muted: false,
+    seenTutorial: false,
+    runs: 0,
+    character: 'naruto',
+    bestDist: 0,
+  };
 }
 
 /** 非負整數（壞資料夾成 0） */
@@ -58,6 +75,8 @@ export function parseSave(raw: string | null): SaveData {
     muted: typeof obj.muted === 'boolean' ? obj.muted : d.muted,
     seenTutorial: typeof obj.seenTutorial === 'boolean' ? obj.seenTutorial : d.seenTutorial,
     runs: nonNeg(obj.runs, d.runs),
+    character: isCharacterId(obj.character) ? obj.character : d.character,
+    bestDist: nonNeg(obj.bestDist, d.bestDist),
   };
 }
 
@@ -75,6 +94,8 @@ export interface RunResult {
   boards: number;
   /** 結束時剩下的兵糧丸 */
   pills: number;
+  /** 這局跑的距離（公尺；不給就不更新最遠距離） */
+  distance?: number;
 }
 
 /** 套用一局的結算（回傳新物件，不修改原存檔） */
@@ -86,6 +107,7 @@ export function applyRunResult(d: SaveData, r: RunResult): SaveData {
     boards: Math.max(0, Math.floor(r.boards)),
     pills: Math.max(0, Math.floor(r.pills)),
     runs: d.runs + 1,
+    bestDist: Math.max(d.bestDist, Math.floor(r.distance ?? 0)),
   };
 }
 

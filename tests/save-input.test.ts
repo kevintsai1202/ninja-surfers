@@ -54,6 +54,25 @@ describe('存檔', () => {
     expect(r2.best).toBe(1500);
   });
 
+  it('多角色：預設選鳴人、最遠距離 0；壞掉的角色編號回到鳴人、壞掉的距離回到 0', () => {
+    const d = defaultSave();
+    expect(d.character).toBe('naruto');
+    expect(d.bestDist).toBe(0);
+    expect(parseSave(JSON.stringify({ character: 'sakura', bestDist: 2345.6 }))).toMatchObject({ character: 'sakura', bestDist: 2345 });
+    expect(parseSave(JSON.stringify({ character: 'itachi', bestDist: -5 }))).toMatchObject({ character: 'naruto', bestDist: 0 });
+    // 第一版的存檔沒有這兩個欄位：補預設
+    expect(parseSave(JSON.stringify({ best: 900, ryo: 10 }))).toMatchObject({ character: 'naruto', bestDist: 0, best: 900 });
+  });
+
+  it('結算：單局最遠距離取大（解鎖角色用），不修改原物件', () => {
+    const d = { ...defaultSave(), bestDist: 1200 };
+    const r = applyRunResult(d, { score: 500, coins: 0, boards: 1, pills: 1, distance: 800.4 });
+    expect(r.bestDist).toBe(1200);
+    const r2 = applyRunResult(r, { score: 500, coins: 0, boards: 1, pills: 1, distance: 2050.9 });
+    expect(r2.bestDist).toBe(2050);
+    expect(d.bestDist).toBe(1200);
+  });
+
   it('localStorage 讀寫（包 try/catch，丟例外時不會壞）', () => {
     const st = memoryStorage();
     const d = { ...defaultSave(), ryo: 77 };

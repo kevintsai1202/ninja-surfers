@@ -557,6 +557,46 @@
 .howto > .close {
   margin-bottom: auto;
 }
+/* 標題畫面的選角：◀ 名字 ▶，鎖住時名字下方顯示解鎖條件 */
+.char-pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: auto;
+}
+.char-pick button {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(20, 22, 40, 0.7);
+  color: #fff;
+  font-size: 18px;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5);
+}
+.char-info {
+  min-width: 150px;
+  padding: 6px 14px;
+  border-radius: 14px;
+  background: rgba(20, 22, 40, 0.55);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.char-name {
+  font-size: 26px;
+  font-weight: 900;
+  color: #ffe36b;
+  -webkit-text-stroke: 1px var(--ink);
+}
+.char-lock {
+  font-size: 13px;
+  color: #ffd2c8;
+}
+.big.start:disabled {
+  filter: grayscale(1) brightness(0.85);
+  cursor: default;
+}
 .howto .x {
   position: fixed;
   top: max(12px, env(safe-area-inset-top));

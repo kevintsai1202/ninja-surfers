@@ -3,6 +3,7 @@ import { POWER_INFO } from '../render/world/pickups';
 import type { RunState } from '../sim/run';
 import type { SaveData } from '../sim/save';
 import type { PowerKind, TimedPower } from '../sim/types';
+import type { CharacterInfo } from '../sim/characters';
 import { POWER_TIME } from '../sim/powerups';
 
 /**
@@ -23,14 +24,17 @@ export interface UiHandlers {
   onBoard(): void;
   /** 點「爆」按鈕：擲起爆符苦無 */
   onKunai(): void;
+  /** 標題畫面切換角色（◀ ▶） */
+  onPrevChar(): void;
+  onNextChar(): void;
 }
 
 /** HUD 上顯示的能力（順序固定） */
 const HUD_POWERS: TimedPower[] = ['rasengan', 'toad', 'chakra', 'magnet', 'clones', 'board'];
 
-/** 能力 → 道具資訊（卷軸滑板不是場上道具，另外定義） */
+/** 能力 → 道具資訊（通靈獸坐騎不是場上道具，另外定義；換角色時由 setCharacter 改字） */
 function powerInfo(k: TimedPower): { kanji: string; color: string; name: string } {
-  if (k === 'board') return { kanji: '板', color: '#b8282a', name: '通靈卷軸滑板' };
+  if (k === 'board') return { kanji: '蟆', color: '#b8282a', name: '通靈術・小蛤蟆' };
   return POWER_INFO[k as PowerKind];
 }
 
@@ -54,7 +58,13 @@ export class Ui {
   private readonly ryoEl: HTMLSpanElement;
   private readonly multEl: HTMLDivElement;
   private readonly powersEl: HTMLDivElement;
-  private readonly powerRows = new Map<TimedPower, { row: HTMLDivElement; bar: HTMLElement; label: HTMLElement }>();
+  private readonly powerRows = new Map<TimedPower, { row: HTMLDivElement; bar: HTMLElement; label: HTMLElement; badge: HTMLElement }>();
+  /** 標題畫面的選角：名字、解鎖條件、開始按鈕 */
+  private readonly charName: HTMLElement;
+  private readonly charLock: HTMLElement;
+  private readonly startBtn: HTMLButtonElement;
+  /** 影分身那一列的名稱（setCharacter 不會動它） */
+  private readonly boardKanji: HTMLElement;
   private readonly boardBtn: HTMLButtonElement;
   private readonly boardCount: HTMLSpanElement;
   /** 左下角的手裏劍數量 */
@@ -104,10 +114,12 @@ export class Ui {
       row.hidden = true;
       row.innerHTML = `<b style="background:${info.color}">${info.kanji}</b><span><em>${info.name}</em><i><s></s></i></span>`;
       this.powersEl.appendChild(row);
-      this.powerRows.set(k, { row, bar: row.querySelector('s')!, label: row.querySelector('em')! });
+      this.powerRows.set(k, { row, bar: row.querySelector('s')!, label: row.querySelector('em')!, badge: row.querySelector('b')! });
     }
-    this.boardBtn = el('button', 'board-btn', '<b>板</b>');
-    this.boardBtn.setAttribute('aria-label', '通靈卷軸滑板');
+    // 通靈坐騎按鈕：字依角色（蟆／蛇／蛞／犬）
+    this.boardBtn = el('button', 'board-btn', '<b>蟆</b>');
+    this.boardBtn.setAttribute('aria-label', '通靈坐騎');
+    this.boardKanji = this.boardBtn.querySelector('b')!;
     this.boardCount = el('span', 'count', '0');
     this.boardBtn.append(this.boardCount, el('small', 'hint', '<span class="kb">Space</span>'));
     this.boardBtn.addEventListener('click', (e) => {
@@ -150,8 +162,13 @@ export class Ui {
       <div class="stats">
         <div><small>最高分</small><b class="best">0</b></div>
         <div><small>兩</small><b class="bank">0</b></div>
-        <div><small>卷軸滑板</small><b class="boards">0</b></div>
+        <div><small>通靈卷軸</small><b class="boards">0</b></div>
         <div><small>兵糧丸</small><b class="pills">0</b></div>
+      </div>
+      <div class="char-pick">
+        <button class="char-prev" aria-label="上一個角色">◀</button>
+        <div class="char-info"><b class="char-name">鳴人</b><small class="char-lock" hidden></small></div>
+        <button class="char-next" aria-label="下一個角色">▶</button>
       </div>
       <button class="big start">開始逃跑！</button>
       <div class="row">
@@ -160,6 +177,11 @@ export class Ui {
       </div>
       <p class="story">在刻臉岩壁上塗鴉被發現了……快逃！</p>`;
     this.title.querySelector('.start')!.addEventListener('click', () => h.onStart());
+    this.title.querySelector('.char-prev')!.addEventListener('click', () => h.onPrevChar());
+    this.title.querySelector('.char-next')!.addEventListener('click', () => h.onNextChar());
+    this.charName = this.title.querySelector('.char-name')!;
+    this.charLock = this.title.querySelector('.char-lock')!;
+    this.startBtn = this.title.querySelector('.start')!;
     this.title.querySelector('.howto-btn')!.addEventListener('click', () => this.showHowto(true));
     this.title.querySelector('.mute-btn')!.addEventListener('click', () => h.onToggleMute());
     this.root.appendChild(this.title);
@@ -177,13 +199,15 @@ export class Ui {
         <tr><th>手裏劍</th><td><span class="kb">F</span><span class="tc">點一下畫面</span></td></tr>
         <tr><th>起爆符苦無</th><td><span class="kb">G</span><span class="tc">「爆」按鈕</span></td></tr>
         <tr><th>瞬身術</th><td><span class="kb">同方向快按兩下</span><span class="tc">同方向快滑兩下</span></td></tr>
-        <tr><th>通靈卷軸滑板</th><td><span class="kb">Space</span><span class="tc">「板」按鈕</span></td></tr>
+        <tr><th>通靈坐騎</th><td><span class="kb">Space</span><span class="tc">右下角按鈕</span></td></tr>
+        <tr><th>換角色</th><td>標題畫面 ◀ ▶</td></tr>
         <tr><th>暫停</th><td><span class="kb">Esc ／ P</span><span class="tc">左上角按鈕</span></td></tr>
       </table>
       <ul class="powers-help">
         <li><b style="background:#4f6475">劍</b>手裏劍 +3：打碎前方的低欄、橫樑、擋牆（列車打不壞），最多 9 支</li>
         <li><b style="background:#c21d3c">爆</b>起爆符苦無：炸掉同一車道前方 30 m 的障礙，連列車都炸得掉</li>
-        <li><b style="background:#15b3d6">螺</b>螺旋丸：3 秒衝刺，撞到什麼都撞碎</li>
+        <li><b style="background:#15b3d6">螺</b>螺旋丸（佐助：千鳥、小櫻：怪力、卡卡西：雷切）：3 秒衝刺，撞到什麼都撞碎</li>
+        <li><b style="background:#b8282a">卷</b>通靈卷軸（庫存）：召喚自己的通靈獸騎 30 秒，撞到一次不死（鳴人：小蛤蟆、佐助：大蛇、小櫻：蛞蝓、卡卡西：忍犬）</li>
         <li><b style="background:#8a5a2b">替</b>替身木頭：擋下一次倒下或被抓</li>
         <li><b style="background:#e4572a">蛙</b>通靈術・巨蛤蟆：騎蛤蟆在空中大跳，無敵</li>
         <li><b style="background:#2f7de1">查</b>查克拉附著：跳得更高；正面撞上列車或擋牆會直接跑上去</li>
@@ -192,7 +216,7 @@ export class Ui {
         <li><b style="background:#b8282a">秘</b>秘傳卷軸：隨機獎勵</li>
         <li><b style="background:#3d9a4a">丸</b>兵糧丸：被抓之後可以復活</li>
       </ul>
-      <p>正面撞上障礙就會倒下；側面擦撞會踉蹌，追捕者會追上來，短時間內再踉蹌一次就被抓。瞬身術：0.25 秒內往同一個方向換線兩次，會瞬間移到最遠的安全車道（冷卻 1.2 秒）。</p>
+      <p>正面撞上障礙就會倒下；側面擦撞會踉蹌，追捕者會追上來，短時間內再踉蹌一次就被抓。瞬身術：0.25 秒內往同一個方向換線兩次，會瞬間移到最遠的安全車道（冷卻 1.2 秒）。單局跑到 1,000／2,000／3,000 m 解鎖佐助、小櫻、卡卡西。</p>
       <button class="big close">知道了</button>`;
     this.howto.querySelector('.close')!.addEventListener('click', () => this.showHowto(false));
     this.howto.querySelector('.x')!.addEventListener('click', () => this.showHowto(false));
@@ -255,6 +279,31 @@ export class Ui {
     q('.bank').textContent = fmt(save.ryo);
     q('.boards').textContent = String(save.boards);
     q('.pills').textContent = String(save.pills);
+  }
+
+  /**
+   * 標題畫面的選角：顯示名字；鎖住的角色顯示解鎖條件，開始按鈕停用。
+   * @param lockText 解鎖條件（null = 已解鎖）
+   */
+  setTitleCharacter(name: string, lockText: string | null): void {
+    this.charName.textContent = name;
+    this.charLock.hidden = lockText === null;
+    this.charLock.textContent = lockText ?? '';
+    this.startBtn.disabled = lockText !== null;
+    this.startBtn.textContent = lockText === null ? '開始逃跑！' : '🔒 尚未解鎖';
+  }
+
+  /** 換角色：HUD 的忍術列、坐騎列、坐騎按鈕改成該角色的 */
+  setCharacter(info: CharacterInfo): void {
+    const j = this.powerRows.get('rasengan')!;
+    j.badge.textContent = info.jutsu.kanji;
+    j.badge.style.background = info.jutsu.color;
+    j.label.textContent = info.jutsu.name;
+    const b = this.powerRows.get('board')!;
+    b.badge.textContent = info.mount.kanji;
+    b.label.textContent = `通靈術・${info.mount.name}`;
+    this.boardKanji.textContent = info.mount.kanji;
+    this.boardBtn.setAttribute('aria-label', `通靈術・${info.mount.name}`);
   }
 
   /** 顯示或關閉操作說明 */

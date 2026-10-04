@@ -131,11 +131,13 @@ export const TOAD_SEAT = new THREE.Vector3(0, 1.82, -0.15);
 /**
  * 巨蛤蟆（通靈術）：橘紅色疣皮、奶油色肚子、頭頂兩顆凸出的大眼、寬嘴、深藍短外掛、嘴角叼菸斗。
  * 約 2.8 m 寬、1.9 m 高；主角坐在頭頂（TOAD_SEAT）。
+ * @param variant boss＝空中道具的巨蛤蟆；kid＝鳴人的坐騎小蛤蟆（橘黃色、沒有外掛與菸斗，由坐騎縮小）
  */
-export function buildToad(): ToadRig {
-  const skin = stdMat({ color: 0xd9572a, roughness: 0.5 }, 'toad-skin');
-  const belly = stdMat({ color: 0xf0c27c, roughness: 0.6 }, 'toad-belly');
-  const wart = stdMat({ color: 0xa83c1c, roughness: 0.6 }, 'toad-wart');
+export function buildToad(variant: 'boss' | 'kid' = 'boss'): ToadRig {
+  const kid = variant === 'kid';
+  const skin = stdMat({ color: kid ? 0xf09a2c : 0xd9572a, roughness: 0.5 }, `toad-skin|${variant}`);
+  const belly = stdMat({ color: kid ? 0xfbe2a6 : 0xf0c27c, roughness: 0.6 }, `toad-belly|${variant}`);
+  const wart = stdMat({ color: kid ? 0xc7701c : 0xa83c1c, roughness: 0.6 }, `toad-wart|${variant}`);
   const eyeMat = stdMat({ color: 0xf6d63a, roughness: 0.25 }, 'toad-eye');
   const black = stdMat({ color: 0x111111, roughness: 0.4 }, 'toad-black');
   const coat = fabricMat(0x24386a);
@@ -167,18 +169,20 @@ export function buildToad(): ToadRig {
   mouth.position.set(0, 0.98, -0.25);
   mouth.scale.set(1.2, 1.0, 1);
   parts.add(mouth);
-  // 深藍短外掛：包住背部的半圓殼
-  const coatGeo = new THREE.SphereGeometry(1.215, 32, 16, 0, Math.PI, Math.PI * 0.15, Math.PI * 0.5);
-  coatGeo.rotateY(-Math.PI / 2);
-  parts.add(mesh(coatGeo, coat, [0, 1.0, 0.04], [1.19, 0.73, 1.01]));
-  // 菸斗：嘴角往外伸出
+  // 深藍短外掛：包住背部的半圓殼（小蛤蟆沒有）
+  if (!kid) {
+    const coatGeo = new THREE.SphereGeometry(1.215, 32, 16, 0, Math.PI, Math.PI * 0.15, Math.PI * 0.5);
+    coatGeo.rotateY(-Math.PI / 2);
+    parts.add(mesh(coatGeo, coat, [0, 1.0, 0.04], [1.19, 0.73, 1.01]));
+  }
+  // 菸斗：嘴角往外伸出（小蛤蟆沒有）
   const pipe = new THREE.Group();
   pipe.position.set(0.85, 0.95, -0.85);
   pipe.rotation.set(0, -0.6, -0.25);
   pipe.add(mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.9, 8), stdMat({ color: 0x6b4423, roughness: 0.6 }, 'toad-pipe'), [0.4, 0, 0]));
   pipe.children[0].rotation.z = Math.PI / 2;
   pipe.add(mesh(new THREE.CylinderGeometry(0.1, 0.08, 0.2, 12), stdMat({ color: 0x4a2e17, roughness: 0.6 }, 'toad-bowl'), [0.85, 0.08, 0]));
-  parts.add(pipe);
+  if (!kid) parts.add(pipe);
   // 腳：前腳（粗短）、後腳（大腿＋外張的蹼）
   const leg = (x: number, z: number, front: boolean): THREE.Group => {
     const g = new THREE.Group();

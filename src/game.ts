@@ -3,7 +3,7 @@ import { WorldView } from './render/world/worldView';
 import { Actors, type ActorMode } from './render/actors';
 import { Fx } from './render/fx';
 import { CameraRig } from './render/cameraRig';
-import { POWER_INFO } from './render/world/pickups';
+import { powerInfo } from './render/world/pickups';
 import { AudioEngine, type MusicTrack, type SfxName } from './audio/audio';
 import { Ui } from './ui/ui';
 import { Input } from './input/input';
@@ -14,11 +14,13 @@ import { speedAt } from './sim/speed';
 import { biomeAt } from './sim/biome';
 import type { Action, Lane, ObstacleKind, PowerKind, ScrollReward, SimEvent } from './sim/types';
 import { LANE_WIDTH } from './config';
+import { characterInfo, cycleCharacter, isUnlocked, newlyUnlocked, type CharacterId } from './sim/characters';
 
 /**
  * 遊戲主流程：標題（背景是自動駕駛的展示跑）→ 開場 → 奔跑 → 倒下 → 結算（兵糧丸復活）。
  * 網址參數：seed（固定種子）、auto=1（自動駕駛代玩）、z（起跑距離）、mute=1（靜音）、intro=0（跳過開場鏡頭）、
- * dtcap（每幀最多推進秒數，e2e 用）、gen=0（不自動生成障礙，e2e 用除錯鉤子自己擺）。
+ * dtcap（每幀最多推進秒數，e2e 用）、gen=0（不自動生成障礙，e2e 用除錯鉤子自己擺）、
+ * chars=all（預覽：全部角色都能選，不寫進存檔）。
  */
 
 /** 遊戲流程階段 */
@@ -49,7 +51,7 @@ function rewardText(r: ScrollReward): string {
     case 'ryo':
       return `秘傳卷軸：兩 +${r.amount}`;
     case 'board':
-      return '秘傳卷軸：卷軸滑板 +1';
+      return '秘傳卷軸：通靈卷軸 +1';
     case 'pill':
       return '秘傳卷軸：兵糧丸 +1';
     default:
@@ -83,6 +85,12 @@ class Game {
   private readonly startZ: number;
   /** 每幀最多推進的秒數（預設 0.05，避免切分頁回來時暴衝；e2e 的軟體渲染很慢，可用 ?dtcap= 放寬） */
   private readonly dtCap: number;
+  /** 標題畫面正在看的角色（可能還沒解鎖；解鎖的才會寫進存檔） */
+  private preview: CharacterId;
+  /** 網址 chars=all：全部角色都能選（預覽用，不寫進存檔） */
+  private readonly unlockAll: boolean;
+  /** 這局上一幀跑的距離（判斷有沒有跨過解鎖距離） */
+  private lastDist = 0;
 
   constructor(
     private readonly params: URLSearchParams,
@@ -93,7 +101,9 @@ class Game {
     this.stage = createStage(app);
     this.world = new WorldView(this.stage, biomeAt(Number(params.get('z') ?? 0)));
     this.fx = new Fx(this.stage.world);
-    this.actors = new Actors(this.stage, this.fx);
+    this.unlockAll = params.get('chars') === 'all';
+    this.preview = this.savedCharacter();
+    this.actors = new Actors(this.stage, this.fx, this.preview);
     this.cam = new CameraRig(this.stage.camera);
     this.input = new Input(
       this.stage.renderer.domElement,
@@ -141,7 +151,57 @@ class Game {
       onToggleMute: () => get()?.toggleMute(),
       onBoard: () => get()?.input.push('board'),
       onKunai: () => get()?.input.push('kunai'),
+      onPrevChar: () => get()?.cycleChar(-1),
+      onNextChar: () => get()?.cycleChar(1),
     };
+  }
+
+  /** 這個角色能不能用（已解鎖，或網址 chars=all 的預覽模式） */
+  private available(id: CharacterId): boolean {
+    return this.unlockAll || isUnlocked(id, this.save.bestDist);
+  }
+
+  /** 存檔裡選的角色；還沒解鎖（例如存檔被改過）就退回鳴人 */
+  private savedCharacter(): CharacterId {
+    return isUnlocked(this.save.character, this.save.bestDist) ? this.save.character : 'naruto';
+  }
+
+  /**
+   * 標題畫面切換角色：背景跑的角色、道具徽章、HUD 字樣跟著換；已解鎖的才寫進存檔。
+   * @param dir +1 下一個、−1 上一個
+   */
+  cycleChar(dir: 1 | -1): void {
+    if (this.mode !== 'title') return;
+    this.unlockAudio();
+    this.preview = cycleCharacter(this.preview, dir);
+    this.applyCharacter(this.preview);
+    // 真的解鎖了才寫進存檔（chars=all 的預覽不寫，避免存成還沒解鎖的角色）
+    if (isUnlocked(this.preview, this.save.bestDist) && this.save.character !== this.preview) {
+      this.save = { ...this.save, character: this.preview };
+      writeSave(this.save);
+    }
+    this.audio.playSfx('click');
+  }
+
+  /** 把角色套用到畫面（模型、坐騎、忍術、道具徽章）與介面（HUD、標題選角） */
+  private applyCharacter(id: CharacterId): void {
+    const info = characterInfo(id);
+    this.actors.setCharacter(id);
+    this.world.pickups.setJutsu(info.jutsu);
+    this.ui.setCharacter(info);
+    const lock = this.available(id) ? null : `單局跑到 ${info.unlockDist.toLocaleString('zh-TW')} m 解鎖`;
+    this.ui.setTitleCharacter(info.name, lock);
+  }
+
+  /** 這局第一次跑過解鎖距離：橫幅提示（真正寫進存檔是在結算時） */
+  private checkUnlocks(): void {
+    const dist = this.run.player.z - this.startZ;
+    for (const id of newlyUnlocked(this.lastDist, dist)) {
+      if (this.available(id)) continue;
+      this.ui.flash(`解鎖新角色：${characterInfo(id).name}！`, 'biome', 2.6);
+      this.audio.playSfx('scroll');
+    }
+    this.lastDist = dist;
   }
 
   /** 第一次使用者操作時解鎖音效，並播放目前階段的音樂 */
@@ -174,6 +234,7 @@ class Game {
     this.fx.clear();
     this.cam.snap({ x: 0, y: 0, speed: speedAt(this.startZ), flying: false });
     this.settled = false;
+    this.lastDist = 0;
   }
 
   /** 回到標題畫面 */
@@ -185,11 +246,15 @@ class Game {
     this.input.clear();
     this.cam.setTitle(true);
     this.ui.showTitle(this.save);
+    // 回標題時顯示存檔裡選的角色（剛才可能在看還沒解鎖的角色；chars=all 時維持剛才玩的角色）
+    if (!this.unlockAll || !this.available(this.preview)) this.preview = this.savedCharacter();
+    this.applyCharacter(this.preview);
     if (this.audio.unlocked) this.audio.setMusic('title');
   }
 
-  /** 開始逃跑 */
+  /** 開始逃跑（選的是還沒解鎖的角色就不開始；按鈕也是停用的） */
   start(): void {
+    if (!this.available(this.preview)) return;
     this.unlockAudio();
     this.newRun(false);
     this.mode = 'intro';
@@ -262,6 +327,7 @@ class Game {
       coins: this.run.coins,
       boards: this.run.boards,
       pills: this.run.pills,
+      distance: Math.max(0, this.run.player.z - this.startZ),
     });
     writeSave(this.save);
     this.settled = true;
@@ -324,18 +390,21 @@ class Game {
           sfx('crash');
           this.cam.shake(0.6);
           break;
-        case 'powerup':
-          sfx(POWER_SFX[e.kind]);
-          if (e.kind !== 'scroll') this.ui.flash(`${POWER_INFO[e.kind].name}！`, 'power');
+        case 'powerup': {
+          // 螺旋丸道具依角色換成招牌忍術（千鳥、怪力、雷切）的名稱與音效
+          const info = characterInfo(this.actors.character);
+          sfx(e.kind === 'rasengan' ? info.jutsu.sfx : POWER_SFX[e.kind]);
+          if (e.kind !== 'scroll') this.ui.flash(`${powerInfo(e.kind, info.jutsu).name}！`, 'power');
           break;
+        }
         case 'boardOn':
           sfx('board');
-          this.ui.flash('通靈卷軸滑板！', 'power');
+          this.ui.flash(`通靈術・${characterInfo(this.actors.character).mount.name}！`, 'power');
           break;
         case 'boardBreak':
-          sfx('boardBreak');
+          sfx('poof');
           this.cam.shake(0.3);
-          this.ui.flash('卷軸滑板擋下了！', 'power');
+          this.ui.flash(`${characterInfo(this.actors.character).mount.name}擋下了！`, 'power');
           break;
         case 'throw':
           sfx('throw', e.kind === 'kunai' ? 0.9 : 0.7, e.kind === 'kunai' ? 0.8 : 1);
@@ -407,6 +476,7 @@ class Game {
       else actions = this.input.drain();
       const events = step(this.run, actions, dt);
       this.handleEvents(events);
+      if (this.mode === 'run' || this.mode === 'intro') this.checkUnlocks();
       if (this.mode === 'title' && this.run.status === 'dead') this.newRun(true);
       else if (this.mode !== 'title' && this.run.status === 'dead') {
         this.mode = 'dying';
@@ -446,6 +516,13 @@ class Game {
       },
       get save() {
         return g.save;
+      },
+      /** 目前畫面上的角色、標題畫面正在看的角色 */
+      get character() {
+        return g.actors.character;
+      },
+      get preview() {
+        return g.preview;
       },
       start: () => g.start(),
       /** 在玩家前方 dz 公尺放一個道具（車道取主角目前 x 最近的那條、高度跟著主角，換線或跳躍中也撿得到） */

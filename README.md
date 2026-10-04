@@ -8,7 +8,8 @@
 
 ## 玩法
 
-在刻臉岩壁上塗鴉被發現了，一路被伊魯卡老師追，跑到 1800 m 之後換暗部追。三條車道自動往前跑，越跑越快：
+在刻臉岩壁上塗鴉被發現了，一路被伊魯卡老師追，跑到 1800 m 之後換暗部追。三條車道自動往前跑，越跑越快。
+標題畫面用 ◀ ▶ 選角色（鳴人、佐助、小櫻、卡卡西），見下方「角色」。
 
 | 動作 | 鍵盤 | 手機 |
 | --- | --- | --- |
@@ -18,7 +19,8 @@
 | 手裏劍 | F | 點一下畫面 |
 | 起爆符苦無 | G | 右下角「爆」按鈕（持有時出現） |
 | 瞬身術 | 同方向快按兩下 | 同方向快滑兩下 |
-| 通靈卷軸滑板 | Space | 右下角「板」按鈕 |
+| 通靈坐騎 | Space | 右下角按鈕（字依角色：蟆／蛇／蛞／犬） |
+| 換角色 | 標題畫面 ◀ ▶ | 標題畫面 ◀ ▶ |
 | 暫停 | Esc、P | 左上角按鈕 |
 
 - 正面撞上障礙就倒下；換線時側面擦撞會踉蹌，追捕者追上來，短時間內再踉蹌一次就被抓。
@@ -35,15 +37,29 @@
 | 多重影分身（影） | 分數 ×2，分身幫忙撿旁邊車道的兩；每個分身擋一次低欄、橫樑或擋牆（共 2 次，列車擋不住） |
 | 手裏劍（劍） | 手裏劍 +3（最多 9 支） |
 | 起爆符苦無（爆） | 最多 2 支；炸掉同一車道前方 30 m 內的所有障礙，連列車都炸得掉 |
-| 螺旋丸（螺） | 3 秒衝刺（速度 ×1.35），撞到什麼都撞碎，期間無敵 |
+| 螺旋丸（螺） | 3 秒衝刺（速度 ×1.35），撞到什麼都撞碎，期間無敵；依角色換成千鳥（千）、怪力（怪）、雷切（雷），效果相同 |
 | 替身木頭（替） | 最多 1 個；擋下一次倒下或被抓，原地留下一根木頭 |
-| 通靈卷軸滑板（板） | 庫存道具；撞到一次不死（卷軸碎掉） |
+| 通靈卷軸 | 庫存道具；召喚自己的通靈獸騎 30 秒，撞到一次不死（通靈獸「砰」一聲消失） |
 | 秘傳卷軸（秘） | 隨機獎勵：兩、卷軸滑板、兵糧丸 |
 | 兵糧丸（丸） | 倒下後可以復活（1、2、4…顆） |
 
 正面撞擊的處理順序：螺旋丸撞碎 → 查克拉攀牆 → 影分身擋下 → 卷軸滑板 → 替身木頭 → 倒下。被抓只有替身木頭救得了。
 
 iPhone：遊戲會把網頁音訊設成「媒體播放」（iOS 16.4 起支援；更舊的 iOS 改用無聲音軌切換），所以響鈴／靜音鍵開在靜音時也應該有聲音；還是沒聲音的話，先調高媒體音量，再點一下畫面。
+
+## 角色
+
+| 角色 | 解鎖（單局跑到） | 招牌忍術（取代螺旋丸的外觀） | 通靈獸坐騎 |
+| --- | --- | --- | --- |
+| 鳴人 | 一開始就能用 | 螺旋丸 | 小蛤蟆 |
+| 佐助 | 1,000 m | 千鳥 | 大蛇 |
+| 小櫻 | 2,000 m | 怪力 | 蛞蝓 |
+| 卡卡西 | 3,000 m | 雷切 | 忍犬 |
+
+- 角色只差外觀，能力相同；跑姿全部是忍者跑，影分身會變成該角色的分身。
+- 存檔記錄單局最遠距離（和分數不同，分數有影分身 ×2 與打碎障礙的加分）；第一次跑過門檻時會出現「解鎖新角色」橫幅。
+- 想先看全部角色：網址加 `?chars=all`（只是預覽，不會寫進存檔）。
+- 臉部是立體建模（眼窩、鼻樑、唇、下巴的雕塑，凸起的眼球片、立體眼線與眉毛），參考圖在 `docs/concept/*-sheet.jpg`、`*-face.jpg`。
 
 ## 開發
 
@@ -64,6 +80,9 @@ $env:BASE_URL = 'http://localhost:5173/'
 npx playwright test e2e/game.spec.ts     # 遊戲流程與三個場景截圖
 npx playwright test e2e/pose.spec.ts     # 忍者跑姿截圖
 npx playwright test e2e/moves.spec.ts    # 第二版新招式（手裏劍、苦無、螺旋丸、替身、影分身、瞬身、攀牆）
+npx playwright test e2e/chars.spec.ts    # 多角色：選角、距離解鎖、坐騎與忍術截圖
+node scripts/shot-models.mjs faces sasuke   # 角色的頭部特寫與全身截圖（印出 draw call／三角形數）
+node scripts/shot-models.mjs mounts sakura  # 角色騎通靈獸坐騎的截圖
 npx playwright test e2e/mobile.spec.ts   # 手機模擬：觸控開始後有聲音、點畫面擲手裏劍、「爆」按鈕
 $env:SCENE_ID = 'forest'; npx playwright test e2e/scene.spec.ts   # 場景預覽截圖
 ```
@@ -78,7 +97,8 @@ $env:SCENE_ID = 'forest'; npx playwright test e2e/scene.spec.ts   # 場景預覽
 | `?mute=1` | 靜音 |
 | `?gen=0` | 不自動生成障礙（e2e 用除錯鉤子自己擺） |
 | `?dtcap=0.15` | 每幀最多推進的遊戲秒數（軟體渲染很慢時放寬） |
-| `?pose=1&model=ninja&view=side&phase=0.25` | 角色姿勢檢視（model：ninja／iruka／anbu／dog／toad／board） |
+| `?chars=all` | 全部角色都能選（預覽，不寫進存檔） |
+| `?pose=1&model=ninja&view=side&phase=0.25` | 角色姿勢檢視（model：ninja／naruto／sasuke／sakura／kakashi／iruka／anbu／dog／toad／board；view 另有 facefront／face3q／faceside；`mount=1` 騎通靈獸） |
 | `?scene=village&cam=game` | 場景預覽（cam：game／high／side／low／gate／far） |
 
 ## 架構
@@ -91,10 +111,12 @@ src/
     track.ts           關卡圖樣與生成（間距依速度）
     autopilot.ts       自動駕駛（展示模式、公平性測試）
     collision.ts player.ts chaser.ts powerups.ts biome.ts speed.ts save.ts rng.ts
+    characters.ts      可選角色表（解鎖距離、招牌忍術、坐騎）
   render/
     stage.ts           渲染器、光線、陰影、天空、霧
     curvedWorld.ts     地平線下彎（改寫 shader chunk）
-    character/         高精細角色（主角、伊魯卡、暗部、忍犬、巨蛤蟆）與程式動畫
+    character/         高精細角色（鳴人、佐助、小櫻、卡卡西、伊魯卡、暗部）、立體臉（face3d.ts）、通靈獸坐騎（mounts.ts、summons.ts）與程式動畫
+    jutsu.ts           招牌忍術的手上特效（螺旋丸／千鳥／怪力／雷切）
     biomes/            三個場景模組（village／forest／valley），介面見 biomes/types.ts
     world/             把模擬同步到畫面（場景段落、障礙、兩、道具、手裏劍與苦無）
     actors.ts fx.ts cameraRig.ts

@@ -15,6 +15,7 @@ import {
 import { faceTextureHD } from './faceHD';
 import { FACE_PHI_DEG, FACE_THETA_START, FACE_THETA_LENGTH } from '../textures';
 import { stdMat } from '../materials';
+import { addHead3D } from './face3d';
 
 /**
  * 主角（Q 版忍者，高精細版）：參考 docs/concept/ninja-sheet-a.jpg、ninja-sheet-b.jpg。
@@ -295,43 +296,58 @@ function addHair(rig: HumanoidRig): void {
   }
 }
 
+/** 護額的擺放：繞頭心旋轉（弧度）。pitch 正值把正面往上推到頭頂（小櫻當髮箍戴）；roll 正值讓角色左邊往下（卡卡西斜遮左眼）；yaw 正值把金屬片往角色左邊轉 */
+export interface HeadbandPose {
+  pitch?: number;
+  roll?: number;
+  yaw?: number;
+}
+
 /**
  * 護額：深藍布帶（有厚度、貼合頭型）＋弧形金屬片（刻紋凹凸、四角鉚釘）＋後腦的結與兩條綁帶。
+ * @param pose 整條護額繞頭心旋轉（頭接近球形，轉了仍貼著頭）
  */
-export function addHeadbandHD(rig: HumanoidRig, bandColor = NINJA_COLORS.band, tails = true): void {
+export function addHeadbandHD(rig: HumanoidRig, bandColor = NINJA_COLORS.band, tails = true, pose: HeadbandPose = {}): void {
   const tex = textures();
   const r = DIMS.headR;
   const y = r * 0.34;
+  // 所有零件放在同一個群組，整組繞頭心旋轉
+  const g = new THREE.Group();
+  g.name = 'headband';
+  g.rotation.set(pose.pitch ?? 0, pose.yaw ?? 0, pose.roll ?? 0);
+  rig.head.add(g);
   const bandMat = fabricMat(bandColor);
-  const band = shapeHeadGeometry(ringBand(r * 1.03, 0.082, 0.016, 40));
+  // 先移到額頭高度再套頭型變形：反過來的話會用赤道的臉頰加寬量，布帶左右變寬、從金屬片兩側穿到前面
+  const band = ringBand(r * 1.03, 0.082, 0.016, 40);
   band.translate(0, y, 0);
-  rig.head.add(new THREE.Mesh(band, bandMat));
+  shapeHeadGeometry(band);
+  g.add(new THREE.Mesh(band, bandMat));
   // 金屬片：彎成頭部弧度，正面朝 −z
   const R = r * 1.075;
   const plate = new THREE.Mesh(curvedPlate(0.21, 0.09, 0.014, R), metalMat(0xffffff, tex.plate, tex.plateBump));
   plate.position.y = y;
-  rig.head.add(plate);
+  g.add(plate);
   const rivetMat = metalMat(0xa9b2ba);
   for (const [px, py] of [[-0.088, 0.03], [0.088, 0.03], [-0.088, -0.03], [0.088, -0.03]]) {
     const a = px / R;
     const rivet = new THREE.Mesh(new THREE.SphereGeometry(0.0075, 8, 6), rivetMat);
     rivet.position.set(Math.sin(a) * (R + 0.008), y + py, -Math.cos(a) * (R + 0.008));
     rivet.userData.noOutline = true;
-    rig.head.add(rivet);
+    g.add(rivet);
   }
   // 後腦的結
   const knot = new THREE.Mesh(new THREE.SphereGeometry(0.045, 14, 10), bandMat);
   knot.scale.set(1.25, 0.85, 0.8);
   knot.position.set(0, y, r * 0.98);
-  rig.head.add(knot);
+  g.add(knot);
   if (!tails) return;
   for (const side of [-1, 1]) {
     const loop = new THREE.Mesh(new THREE.SphereGeometry(0.032, 12, 8), bandMat);
     loop.scale.set(1.2, 0.7, 0.7);
     loop.position.set(side * 0.045, y + 0.01, r * 0.95);
-    rig.head.add(loop);
+    g.add(loop);
     // 兩條綁帶：動畫會讓它們隨風往後飄
-    const flap = ribbonChain(rig.head, [side * 0.03, y - 0.012, r * 1.02], 5, 0.068, 0.062, 0.013, bandMat, 0.93);
+    const flap = ribbonChain(g, [side * 0.03, y - 0.012, r * 1.02], 5, 0.068, 0.062, 0.013, bandMat, 0.93);
     flap.rotation.set(0.6, side * 0.22, 0);
     flap.userData.side = side;
     flap.userData.baseX = 0.75;
@@ -361,7 +377,17 @@ export function buildNinja(outline = 0.007): HumanoidRig {
     sole: c.sole,
     zipper: true,
   });
-  addHeadHD(rig, c.skin, tex.face);
+  // 第二版：立體臉（參考 docs/concept/naruto-face.jpg）
+  addHead3D(rig, {
+    skin: c.skin,
+    iris: '#2f86ec',
+    brow: 0xc9961f,
+    eyes: 'round',
+    brows: 'confident',
+    mouth: 'grin',
+    whiskers: true,
+    blush: true,
+  });
   addHair(rig);
   addHeadbandHD(rig);
   finalizeRig(rig, outline);
